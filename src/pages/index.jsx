@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createPageUrl } from '@/utils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { 
   MessageSquare, 
   Mic, 
@@ -60,8 +60,11 @@ export default function Home() {
         mode: currentTab
       });
 
-      // Use React Router navigation instead of window.location
-      navigate(`/FormChat?${params.toString()}`);
+      // Try direct window.location.href navigation as a fallback
+      window.location.href = `/FormChat?${params.toString()}`;
+      
+      // The navigate function should work, but we're using window.location.href as a fallback
+      // navigate(`/FormChat?${params.toString()}`);
     } catch (error) {
       console.error("Navigation error:", error);
     }
@@ -202,6 +205,18 @@ export default function Home() {
             {selectedProcess && (
               <div className="mt-2 text-sm text-gray-500 text-center">
                 Selected: {selectedProcess.name} ({currentTab} mode)
+              </div>
+            )}
+            
+            {/* Alternative direct link approach */}
+            {selectedProcess && (
+              <div className="mt-4">
+                <Link 
+                  to={`/FormChat?processId=${selectedProcess.id}&mode=${currentTab}`}
+                  className="block w-full text-center text-sm text-blue-600 hover:underline"
+                >
+                  Alternative: Click here to start session
+                </Link>
               </div>
             )}
           </div>
