@@ -6,11 +6,11 @@
 - [x] Understand routing system and component organization
 
 ## Feature Development
-- [ ] Fix "Start Session" button navigation issue
+- [x] Fix "Start Session" button navigation issue
   - [x] Modify index.jsx to use React Router navigation instead of window.location
-  - [ ] Test navigation functionality
+  - [x] Test navigation functionality
 - [ ] Set up GitHub repository
-  - [ ] Configure Git repository
+  - [x] Configure Git repository
   - [ ] Create GitHub repository
   - [ ] Provide connection guidelines to user
 

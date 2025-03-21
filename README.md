@@ -1,20 +1,47 @@
-# Base44 App
+# Call VU Management Studio
 
+A conversational health intake system with multiple interaction modes (chat, voice, avatar).
 
-This app was created automatically by Base44.
-It's a Vite+React app that communicates with the Base44 API.
+## Features
 
-## Running the app
+- Process selection interface
+- Multiple interaction modes (chat, voice, avatar)
+- Form completion through conversational interface
+- Analytics dashboard
+- Process management
+
+## Recent Fixes
+
+- Fixed "Start Session" button navigation to use React Router instead of window.location, preventing page reloads
+
+## Development
+
+### Prerequisites
+
+- Node.js (v18+)
+- npm or yarn
+
+### Installation
 
 ```bash
+# Install dependencies
 npm install
+
+# Start development server
 npm run dev
-```
 
-## Building the app
-
-```bash
+# Build for production
 npm run build
 ```
 
-For more information and support, please contact Base44 support at app@base44.com.
+## Project Structure
+
+- `/src/components/` - Reusable UI components
+  - `/src/components/ui/` - Base UI components
+  - `/src/components/chat/` - Chat-related components
+  - `/src/components/form/` - Form-related components
+- `/src/pages/` - Application pages
+- `/src/api/` - API clients and entity definitions
+- `/src/utils/` - Utility functions
+- `/src/hooks/` - Custom React hooks
+- `/src/lib/` - Library code
