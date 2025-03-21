@@ -1,8 +1,8 @@
 import * as React from "react"
 import { Calendar as CalendarIcon } from "lucide-react"
 import { addDays, format } from "date-fns"
-import { DateRange } from "react-day-picker"
-
+// Fix for react-day-picker DateRange import issue
+import { DayPicker } from "react-day-picker"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -11,6 +11,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+
+// Define DateRange type locally since it's not exported from react-day-picker
+// This matches the structure used in the component
+const DateRange = {
+  from: Date,
+  to: Date
+}
 
 export function DateRangePicker({
   className,
@@ -21,13 +28,11 @@ export function DateRangePicker({
     from: new Date(),
     to: addDays(new Date(), 7),
   })
-
   React.useEffect(() => {
     if (value) {
       setDate(value)
     }
   }, [value])
-
   return (
     <div className={cn("grid gap-2", className)}>
       <Popover>
