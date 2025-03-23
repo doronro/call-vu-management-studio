@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { FormContext } from '@/api/entities';
 import { FormSchema } from '@/api/entities';
@@ -73,149 +72,121 @@ export default function FormChat() {
   const maxReconnectAttempts = 2;
   const [formSchema, setFormSchema] = useState(null);
   const [sessionId, setSessionId] = useState(null);
-  const [currentSchema, setCurrentSchema] = useState(null);
-  const [processingVoiceInput, setProcessingVoiceInput] = useState(false);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [awaitingResponse, setAwaitingResponse] = useState(false);
-  const [currentQuestion, setCurrentQuestion] = useState(null);
+  const [processId, setProcessId] = useState(null);
+  const [processName, setProcessName] = useState("");
   const [showKnowledgeBase, setShowKnowledgeBase] = useState(false);
-  const [knowledgeBaseQuestions, setKnowledgeBaseQuestions] = useState([]);
+  const [knowledgeBaseQuery, setKnowledgeBaseQuery] = useState("");
+  const [knowledgeBaseResults, setKnowledgeBaseResults] = useState([]);
+  const [isSearchingKnowledgeBase, setIsSearchingKnowledgeBase] = useState(false);
+  const [showRatingInput, setShowRatingInput] = useState(false);
+  const [userRating, setUserRating] = useState(0);
 
-  const handleInputChange = (value) => {
-    setCurrentInputValue(value);
-    setValidationError(null);
-  };
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const formId = urlParams.get('formId');
+    const processIdParam = urlParams.get('processId');
+    
+    if (processIdParam) {
+      setProcessId(processIdParam);
+      loadProcess(processIdParam);
+    } else if (formId) {
+      loadForm(formId);
+    } else {
+      loadDefaultForm();
+    }
+    
+    return () => {
+      if (speechSynthesisRef.current) {
+        speechSynthesisRef.current.cancel();
+      }
+    };
+  }, []);
 
-  const getSmartButtons = () => {
-    if (!fields) return [];
-    return fields.filter(field =>
-      field.type === 'smartbutton' &&
-      isFieldVisible(field) &&
-      !answeredFields[field.id]
-    );
-  };
+  useEffect(() => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isTyping]);
 
-  const processFormSchema = () => {
+  const loadProcess = async (processId) => {
     try {
-      if (!jsonText) {
-        console.error("No JSON text provided");
+      setLoading(true);
+      const processes = await Process.filter({ id: processId });
+      
+      if (processes.length === 0) {
+        console.error("Process not found");
         return;
       }
-
-      const schemaData = JSON.parse(jsonText);
-      console.log("Processing schema:", schemaData);
-
-      if (!schemaData.form) {
-        console.error("Invalid schema format - missing 'form' property");
-        return;
+      
+      const process = processes[0];
+      setProcessName(process.name || "Form Process");
+      
+      if (process.formSchemaId) {
+        loadForm(process.formSchemaId);
+      } else {
+        console.error("No form schema associated with this process");
       }
-
-      setFormSchema(schemaData);
-      const {
-        extractedFields,
-        extractedSections,
-        extractedVisibilityRules,
-        extractedUpdatingRules,
-        extractedGlobalVars,
-        initialBlockVisibility,
-        initialFieldVisibility
-      } = extractDataFromSchema(schemaData);
-
-      console.log(`Extracted ${extractedFields.length} fields and ${extractedSections.length} sections`);
-
-      setFields(extractedFields);
-      setSections(extractedSections);
-      setVisibilityRules(extractedVisibilityRules);
-      setUpdatingRules(extractedUpdatingRules);
-      setGlobalVariables(extractedGlobalVars);
-      setBlockVisibility(initialBlockVisibility);
-      setFieldVisibility(initialFieldVisibility);
-
-      setFormTitle(schemaData.form.formName || "Form");
-      setFormLoaded(true);
-      setShowUploadModal(false);
-
-      const newSessionId = createLocalSession(schemaData);
-      if (newSessionId) {
-        setSessionId(newSessionId);
+      
+      // Create a new session for this process
+      const newSessionId = `session_${Date.now()}`;
+      setSessionId(newSessionId);
+      
+      try {
+        await Session.create({
+          sessionId: newSessionId,
+          processId: processId,
+          mode: "chat",
+          startTime: new Date().toISOString(),
+          completed: false,
+          formData: {}
+        });
+      } catch (error) {
+        console.error("Error creating session:", error);
       }
-
-      setTimeout(() => {
-        startConversation();
-      }, 100);
-
+      
     } catch (error) {
-      console.error("Error processing form schema:", error);
-      alert("Error processing form schema. Please check the JSON format.");
+      console.error("Error loading process:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    console.log("FormChat mounted");
-    const url = new URL(window.location.href);
-    console.log("Current URL:", url.toString());
-    console.log("URL parameters:", Object.fromEntries(url.searchParams));
-
-    const createNewSession = async () => {
-      try {
-        const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        console.log("Generated sessionId:", sessionId);
-        setSessionId(sessionId);
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const processId = urlParams.get('processId');
-        const mode = urlParams.get('mode') || 'chat';
-
-        console.log("URL Parameters:", {
-          processId,
-          mode
-        });
-
-        if (!processId) {
-          console.error("No processId provided");
-          return;
-        }
-
-        setInteractionMode(mode);
-        console.log("Set interaction mode to:", mode);
-
-        const processes = await Process.filter({ id: processId });
-        console.log("Found processes:", processes);
-
-        if (processes.length > 0) {
-          const process = processes[0];
-          console.log("Selected process:", process);
-          setFormTitle(process.name);
-
-          const sessionData = {
-            sessionId: sessionId,
-            processId: processId,
-            mode: mode,
-            startTime: new Date().toISOString(),
-            completed: false,
-            formData: {},
-            questions: []
-          };
-
-          console.log("Creating session with data:", sessionData);
-          await Session.create(sessionData);
-          console.log("Session created successfully");
-
-        } else {
-          console.error("Process not found:", processId);
-        }
-      } catch (error) {
-        console.error("Error in createNewSession:", error);
+  const loadForm = async (formId) => {
+    try {
+      setLoading(true);
+      const formSchemas = await FormSchema.filter({ id: formId });
+      
+      if (formSchemas.length === 0) {
+        console.error("Form schema not found");
+        return;
       }
-    };
+      
+      const schema = formSchemas[0];
+      initializeForm(schema);
+    } catch (error) {
+      console.error("Error loading form:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    createNewSession();
-  }, []);
+  const loadDefaultForm = () => {
+    // For demo purposes, load a default form
+    fetch('/defaultForm.json')
+      .then(response => response.json())
+      .then(schema => {
+        initializeForm(schema);
+      })
+      .catch(error => {
+        console.error("Error loading default form:", error);
+        setLoading(false);
+      });
+  };
 
   const trackQuestion = async (question, answer) => {
-    if (!sessionId) return;
-
     try {
+      if (!sessionId) return;
+      
       const sessions = await Session.filter({ sessionId: sessionId });
       if (sessions.length === 0) return;
 
@@ -239,48 +210,58 @@ export default function FormChat() {
     if (!currentField) return;
 
     console.log(`Processing response for field ${currentField.id}:`, value, `(source: ${source})`);
-
-    if ((currentField.type === 'signature' || currentField.type === 'signatureinput' ||
-      currentField.type === 'signaturepad') && value === 'signature_requested') {
-      handleSignatureClick(currentField);
-      return;
+    
+    // Clear any previous validation errors
+    setValidationError(null);
+    
+    // Validate the input if needed
+    if (currentField.validation) {
+      const isValid = validateInput(value, currentField.validation);
+      if (!isValid) {
+        const errorMessage = currentField.validation.errorMessage || "Invalid input. Please try again.";
+        setValidationError(errorMessage);
+        addMessage(errorMessage, "bot", "error");
+        return;
+      }
     }
-
-    const newFormData = { ...formData };
-    newFormData[currentField.id] = value;
-    if (currentField.integrationID) {
-      newFormData[currentField.integrationID] = value;
-    }
-    setFormData(newFormData);
-
+    
+    // Update form data
+    const updatedFormData = { ...formData };
+    updatedFormData[currentField.id] = value;
+    setFormData(updatedFormData);
+    
+    // Mark this field as answered
     setAnsweredFields(prev => ({
       ...prev,
       [currentField.id]: true
     }));
-
-    const displayValue = getDisplayValue(currentField, value);
-    if (displayValue) {
-      addMessage(String(displayValue), "user");
+    
+    // Add user's response to chat
+    let displayValue = value;
+    
+    // Format display value based on field type
+    if (currentField.type === 'select' || currentField.type === 'dropdown') {
+      const option = currentField.options?.find(opt => opt.value === value);
+      if (option) {
+        displayValue = option.label;
+      }
+    } else if (currentField.type === 'checkboxinput') {
+      displayValue = value === true ? 'Yes' : 'No';
+    } else if (currentField.type === 'ratinginput') {
+      displayValue = `${value} stars`;
+    } else if (currentField.type === 'signature' || currentField.type === 'signatureinput' || currentField.type === 'signaturepad') {
+      displayValue = "Signature provided";
     }
-
-    await trackQuestion(currentField.label || currentField.id, String(displayValue));
-
-    setCurrentInputValue('');
-
-    await applyRules();
-
-    const nextFieldIndex = findNextVisibleFieldIndex(currentFieldIndex);
-    if (nextFieldIndex >= 0) {
-      setCurrentFieldIndex(nextFieldIndex);
-      setCurrentQuestionIndex(nextFieldIndex);
-      setTimeout(() => {
-        askQuestion(nextFieldIndex);
-      }, 100);
-    } else if (isSectionComplete()) {
-      moveToNextSection();
+    
+    addMessage(displayValue, "user");
+    
+    // Process any rules that might be triggered by this response
+    if (visibilityRules.length > 0) {
+      processVisibilityRules(currentField.id, value);
     }
-
-    setAwaitingResponse(false);
+    
+    // Move to the next field
+    moveToNextField();
   };
 
   const moveToNextSection = async () => {
@@ -307,19 +288,18 @@ export default function FormChat() {
           continue;
         }
 
-        let rawValue = formData[field.id];
-        if (rawValue === undefined && field.integrationID) {
-          rawValue = formData[field.integrationID];
+        const value = formData[field.id];
+        if (value === undefined || value === null || value === '') {
+          continue;
         }
 
-        let displayValue = rawValue !== undefined ? rawValue : "Not provided";
+        let displayValue = value;
+        let rawValue = value;
 
-        if (field.type === 'dropdowninput' || field.type === 'radioinput') {
-          if (field.properties && field.properties.items && rawValue !== undefined) {
-            const selectedItem = field.properties.items.find(item => item && item.value === rawValue);
-            if (selectedItem && selectedItem.label) {
-              displayValue = selectedItem.label;
-            }
+        if (field.type === 'select' || field.type === 'dropdown') {
+          const option = field.options?.find(opt => opt.value === value);
+          if (option) {
+            displayValue = option.label;
           }
         } else if (field.type === 'checkboxinput') {
           displayValue = rawValue === true ? 'Yes' : 'No';
@@ -334,22 +314,67 @@ export default function FormChat() {
         }
 
         summaryData.push({
-          section: field.section,
-          integrationID: field.integrationID || field.id,
-          question: field.label,
-          answer: displayValue
+          label: field.label || field.id,
+          value: displayValue,
+          rawValue: rawValue,
+          integrationId: field.integrationId || field.id
         });
       }
 
-      setMessages(prev => [
-        ...prev,
-        { text: "Thank you for completing the form! Here's a summary of your responses:", type: "bot" },
-        { type: "summary", data: summaryData }
-      ]);
+      addMessage("Thank you for completing the form. Here's a summary of your responses:", "bot");
+      
+      // Show the summary table
+      addMessage(<SummaryTable data={summaryData} />, "bot", "summary");
+      
+      // Show rating input after form completion
+      setShowRatingInput(true);
+      addMessage("Please rate your experience with this form:", "bot");
+      addMessage(<div className="flex justify-center w-full">
+        <div className="rating-stars flex space-x-1">
+          {[1, 2, 3, 4, 5].map(rating => (
+            <button
+              key={rating}
+              className={`p-2 rounded-full ${userRating >= rating ? 'text-yellow-400' : 'text-gray-300'}`}
+              onClick={() => handleRatingSubmit(rating)}
+            >
+              ★
+            </button>
+          ))}
+        </div>
+      </div>, "bot", "rating-input");
 
-      if (sessionId) {
-        await markSessionComplete(formData);
-      }
+      // Mark the session as complete
+      await markSessionComplete(formData);
+    }
+  };
+
+  // Handle rating submission
+  const handleRatingSubmit = async (rating) => {
+    setUserRating(rating);
+    
+    try {
+      if (!sessionId) return;
+      
+      const sessions = await Session.filter({ sessionId: sessionId });
+      if (sessions.length === 0) return;
+      
+      const session = sessions[0];
+      
+      // Create ratings object with the structure expected by analytics
+      const ratings = {
+        overallExperience: rating,
+        easeOfUse: rating,
+        accuracy: rating,
+        comments: ""
+      };
+      
+      // Update session with ratings
+      await Session.update(session.id, { ratings });
+      
+      addMessage(`Thank you for your rating of ${rating} stars!`, "bot");
+      console.log("Session ratings updated successfully");
+    } catch (error) {
+      console.error("Error updating session ratings:", error);
     }
   };
 
@@ -373,8 +398,7 @@ export default function FormChat() {
       if (window.parent !== window) {
         window.parent.postMessage({
           type: 'SESSION_COMPLETED',
-          sessionId: sessionId,
-          formData: formData
+          sessionId: sessionId
         }, '*');
       }
     } catch (error) {
@@ -382,16 +406,47 @@ export default function FormChat() {
     }
   };
 
-  const startConversation = async () => {
-    if (sections.length === 0 || fields.length === 0) {
-      addMessage("No form content found. Please upload a valid form schema.", "bot");
-      return;
+  const initializeForm = async (schema) => {
+    setFormSchema(schema);
+    setFormTitle(schema.title || "Form Chat");
+    document.title = schema.title || "Form Chat";
+    
+    // Extract fields and sections
+    const allFields = [];
+    const formSections = [];
+    
+    if (schema.form && schema.form.sections) {
+      schema.form.sections.forEach(section => {
+        formSections.push({
+          id: section.id,
+          title: section.title || section.id,
+          description: section.description || ""
+        });
+        
+        if (section.fields && Array.isArray(section.fields)) {
+          section.fields.forEach(field => {
+            allFields.push({
+              ...field,
+              section: section.id
+            });
+          });
+        }
+      });
     }
-
-    setMessages([]);
-
-    let introMessage = "Welcome! I'll help you complete this form.";
-
+    
+    setFields(allFields);
+    setSections(formSections);
+    
+    // Extract visibility rules
+    if (schema.form && schema.form.rules) {
+      setVisibilityRules(schema.form.rules.filter(rule => rule.type === "visibility"));
+    }
+    
+    // Set form as loaded
+    setFormLoaded(true);
+    
+    // Start the conversation
+    const introMessage = schema.messages?.welcome || `Welcome to ${schema.title || "our form"}. I'll guide you through the process.`;
     const firstSection = sections[0]?.id;
     if (firstSection) {
       introMessage += ` Let's start with the ${firstSection} section.`;
@@ -413,432 +468,218 @@ export default function FormChat() {
 
       const introTexts = [];
       let index = 0;
-      while (index < fields.length) {
-        const field = fields[index];
-        if (field.section === firstSection &&
-          isFieldVisible(field) &&
-          field.type === 'paragraph') {
-          const content = field.properties?.editedParagraph || field.properties?.text;
-          if (content) {
-            const processedContent = replacePlaceholders(content);
-            if (processedContent) {
-              introTexts.push(processedContent);
-            }
-          }
+      
+      // Add section description if available
+      const sectionData = formSections.find(s => s.id === firstSection);
+      if (sectionData && sectionData.description) {
+        introTexts.push(sectionData.description);
+      }
+      
+      // Schedule the intro texts to be displayed one after another
+      const displayNextIntro = () => {
+        if (index < introTexts.length) {
+          addMessage(introTexts[index], "bot");
           index++;
+          setTimeout(displayNextIntro, 1000);
         } else {
-          break;
+          // After all intro texts, ask the first question
+          const firstFieldIndex = findFirstFieldInSection(firstSection);
+          if (firstFieldIndex >= 0) {
+            setCurrentFieldIndex(firstFieldIndex);
+            setTimeout(() => askQuestion(firstFieldIndex), 500);
+          }
         }
-      }
-
+      };
+      
       if (introTexts.length > 0) {
-        const combinedIntro = introTexts.join(' ');
-        addMessage(combinedIntro, "bot");
-      }
-
-      const firstFieldIndex = fields.findIndex(field =>
-        field.section === firstSection &&
-        isFieldVisible(field) &&
-        field.type !== 'paragraph' &&
-        field.type !== 'separator' &&
-        field.type !== 'divider'
-      );
-
-      if (firstFieldIndex >= 0) {
-        setCurrentFieldIndex(firstFieldIndex);
-        setTimeout(() => askQuestion(firstFieldIndex), 100);
-      }
-    }
-  };
-
-  const scrollToBottom = () => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
-  const replacePlaceholders = (text) => {
-    if (!text || typeof text !== 'string') return text;
-    if (!text.includes('@#')) return text;
-
-    console.log("Found text with placeholders:", text);
-
-    const regex = /@#([^@#]+)@#/g;
-
-    let allResolved = true;
-    let placeholdersFound = false;
-
-    const result = text.replace(regex, (match, variableName) => {
-      placeholdersFound = true;
-      console.log(`Looking for placeholder value: ${variableName}`);
-
-      if (formData[variableName] !== undefined) {
-        console.log(`Found value in formData: ${formData[variableName]}`);
-        return formData[variableName];
-      }
-
-      const field = fields.find(f => f.integrationID === variableName);
-      if (field && formData[field.id] !== undefined) {
-        console.log(`Found value via field ${field.id}: ${formData[field.id]}`);
-        return formData[field.id];
-      }
-
-      console.log(`No value found for ${variableName}`);
-      allResolved = false;
-      return match;
-    });
-
-    if (placeholdersFound && !allResolved) {
-      console.log("Not all placeholders could be resolved, returning empty string");
-      return "";
-    }
-
-    console.log("Final replaced text:", result);
-    return result;
-  };
-
-  const addMessage = (text, type = "bot") => {
-    if (!text) return;
-
-    let processedText = text;
-    if (type === "bot" && text.includes('@#')) {
-      processedText = replacePlaceholders(text);
-      if (!processedText) {
-        console.log("Skipping message with unresolved placeholders:", text);
-        return;
-      }
-    }
-
-    const messageExists = messages.some(m =>
-      m.text === processedText && m.type === type
-    );
-
-    if (messageExists) {
-      console.log("Skipping duplicate message:", processedText);
-      return;
-    }
-
-    console.log(`Adding message (${type}):`, processedText);
-    setMessages(prev => [...prev, { text: processedText, type }]);
-    setTimeout(scrollToBottom, 100);
-  };
-
-  const getCurrentField = () => {
-    if (currentFieldIndex >= 0 && currentFieldIndex < fields.length) {
-      return fields[currentFieldIndex];
-    }
-    return null;
-  };
-
-  const handleFieldSubmit = (value) => {
-    handleFormResponse(value, 'manual');
-  };
-
-  const handleSignatureClick = (field) => {
-    setCurrentSignatureField(field);
-    setShowSignaturePad(true);
-  };
-
-  const handleSignatureSubmit = (signatureData) => {
-    if (!currentSignatureField) return;
-
-    setShowSignaturePad(false);
-
-    setFormData(prev => ({
-      ...prev,
-      [currentSignatureField.id]: signatureData
-    }));
-
-    setAnsweredFields(prev => ({
-      ...prev,
-      [currentSignatureField.id]: true
-    }));
-
-    addMessage("Signature provided", "user");
-
-    if (currentFieldIndex >= 0) {
-      const nextFieldIndex = findNextVisibleFieldIndex(currentFieldIndex);
-
-      if (nextFieldIndex >= 0) {
-        setCurrentFieldIndex(nextFieldIndex);
-        askQuestion(nextFieldIndex);
-      } else if (isSectionComplete()) {
-        moveToNextSection();
-      }
-    }
-
-    setCurrentSignatureField(null);
-  };
-
-  const handleSignatureCancel = () => {
-    setShowSignaturePad(false);
-    setCurrentSignatureField(null);
-  };
-
-  const handleSpeechRecognized = (text) => {
-    if (!text) return;
-    setProcessingVoiceInput(true);
-
-    console.log("Processing voice input:", text);
-
-    const currentField = getCurrentField();
-    if (!currentField) {
-      console.error("No current field to process voice input for");
-      setProcessingVoiceInput(false);
-      return;
-    }
-
-    addMessage(text, "user");
-
-    const normalizedText = text.trim().toLowerCase();
-
-    let value = null;
-
-    switch (currentField.type) {
-      case 'radioinput':
-      case 'dropdowninput': {
-        const options = currentField.properties?.items || [];
-
-        const numericPattern = /(?:number|option|choice)?\s*(\d+|one|two|three|four|five|first|second|third|fourth|fifth)/i;
-        const numericMatch = normalizedText.match(numericPattern);
-
-        if (numericMatch) {
-          const matchText = numericMatch[1].toLowerCase();
-          let index = -1;
-
-          if (matchText === 'first' || matchText === 'one' || matchText === '1') index = 0;
-          else if (matchText === 'second' || matchText === 'two' || matchText === '2') index = 1;
-          else if (matchText === 'third' || matchText === 'three' || matchText === '3') index = 2;
-          else if (matchText === 'fourth' || matchText === 'four' || matchText === '4') index = 3;
-          else if (matchText === 'fifth' || matchText === 'five' || matchText === '5') index = 4;
-          else {
-            index = parseInt(matchText) - 1;
-          }
-
-          if (index >= 0 && index < options.length) {
-            value = options[index].value;
-            console.log(`Selected option by position: index ${index}, value: ${value}`);
-          }
+        displayNextIntro();
+      } else {
+        // If no intro texts, directly ask the first question
+        const firstFieldIndex = findFirstFieldInSection(firstSection);
+        if (firstFieldIndex >= 0) {
+          setCurrentFieldIndex(firstFieldIndex);
+          setTimeout(() => askQuestion(firstFieldIndex), 500);
         }
-
-        if (!value) {
-          const amountPattern = /\$?(\d+\.?\d*)/;
-          const amountMatch = normalizedText.match(amountPattern);
-
-          if (amountMatch) {
-            const amount = amountMatch[1];
-            const matchingOption = options.find(opt =>
-              opt.label.toLowerCase().includes(amount)
-            );
-
-            if (matchingOption) {
-              value = matchingOption.value;
-              console.log(`Selected option by amount: ${amount}, value: ${value}`);
-            }
-          }
-        }
-
-        if (!value) {
-          for (const option of options) {
-            const optionText = option.label.toLowerCase();
-
-            const parts = optionText.split(' ');
-            if (parts.length > 1) {
-              const merchantParts = parts.slice(1, -1);
-
-              for (const part of merchantParts) {
-                if (part.length > 3 && normalizedText.includes(part.toLowerCase())) {
-                  value = option.value;
-                  console.log(`Selected option by merchant: ${part}, value: ${value}`);
-                  break;
-                }
-              }
-
-              if (value) break;
-            }
-
-            if (normalizedText.includes(optionText) || optionText.includes(normalizedText)) {
-              value = option.value;
-              console.log(`Selected option by text match: "${option.label}", value: ${value}`);
-              break;
-            }
-          }
-        }
-
-        break;
       }
-
-      case 'numberinput':
-      case 'currencyinput': {
-        const numberPattern = /(\d+\.?\d*|\d*\.\d+)/;
-        const numberMatch = normalizedText.match(numberPattern);
-
-        if (numberMatch) {
-          value = numberMatch[1];
-          console.log(`Extracted number: ${value}`);
-        }
-        break;
-      }
-
-      case 'textinput':
-      default:
-        value = text;
-        break;
-    }
-
-    if (value !== null) {
-      console.log(`Final value extracted: ${value}`);
-      handleFormResponse(value, 'voice');
     } else {
-      console.log("Could not extract a valid value from speech");
-      addMessage("I couldn't understand that response. Please try again or use the form controls.", "bot");
+      addMessage(introMessage, "bot");
+      addMessage("There are no sections defined in this form. Please contact the form administrator.", "bot", "error");
     }
+  };
 
-    setProcessingVoiceInput(false);
+  const addMessage = (content, sender, type = "text") => {
+    const newMessage = {
+      id: Date.now(),
+      content,
+      sender,
+      type,
+      timestamp: new Date()
+    };
+    
+    setMessages(prev => [...prev, newMessage]);
+    
+    if (sender === "bot" && typeof content === "string") {
+      lastBotMessageRef.current = content;
+      
+      if (voiceActive && !isSpeaking) {
+        speakText(content);
+      }
+    }
+  };
+
+  const speakText = (text) => {
+    if (!window.speechSynthesis) {
+      console.error("Speech synthesis not supported");
+      return;
+    }
+    
+    // Cancel any ongoing speech
+    if (speechSynthesisRef.current) {
+      speechSynthesisRef.current.cancel();
+    }
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    
+    // Set a voice if available
+    const voices = window.speechSynthesis.getVoices();
+    const englishVoice = voices.find(voice => voice.lang.includes('en-'));
+    if (englishVoice) {
+      utterance.voice = englishVoice;
+    }
+    
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      setCurrentReadingText(text);
+    };
+    
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      setCurrentReadingText("");
+      speechSynthesisRef.current = null;
+    };
+    
+    utterance.onerror = (event) => {
+      console.error("Speech synthesis error:", event);
+      setIsSpeaking(false);
+      setCurrentReadingText("");
+      speechSynthesisRef.current = null;
+    };
+    
+    speechSynthesisRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
   };
 
   const askQuestion = (fieldIndex) => {
-    if (fieldIndex >= 0 && fieldIndex < fields.length) {
-      const field = fields[fieldIndex];
-      setCurrentQuestion(field);
-      setAwaitingResponse(true);
-
-      if (field.type === 'paragraph') {
-        const paragraphContent = field.properties?.editedParagraph || field.properties?.text || "";
-        if (paragraphContent) {
-          const processedContent = replacePlaceholders(paragraphContent);
-          if (processedContent) {
-            addMessage(processedContent, "bot");
-            setCurrentReadingText(processedContent);
-          }
-        }
-
-        const nextFieldIndex = findNextVisibleFieldIndex(fieldIndex);
-        if (nextFieldIndex >= 0) {
-          setCurrentFieldIndex(nextFieldIndex);
-          setTimeout(() => askQuestion(nextFieldIndex), 100);
-        } else if (isSectionComplete()) {
-          moveToNextSection();
-        }
-        return;
+    if (fieldIndex < 0 || fieldIndex >= fields.length) return;
+    
+    const field = fields[fieldIndex];
+    if (!field) return;
+    
+    // Skip non-input fields
+    if (field.type === 'paragraph' || field.type === 'separator' || field.type === 'divider') {
+      if (field.type === 'paragraph' && field.content) {
+        addMessage(field.content, "bot");
       }
-
-      let questionText = formatQuestion(field.label || "");
-
-      if ((field.type === 'radioinput' || field.type === 'dropdowninput') &&
-        field.properties?.items?.length > 0) {
-        const options = field.properties.items.map((item, index) =>
-          `${item.label}`
-        ).join(', ');
-
-        questionText += ` Please choose one of these options: ${options}`;
-      }
-
+      moveToNextField();
+      return;
+    }
+    
+    // Skip fields that are not visible
+    if (!isFieldVisible(field)) {
+      moveToNextField();
+      return;
+    }
+    
+    // Prepare the question text
+    let questionText = field.label || `Please provide ${field.id}`;
+    
+    // Add help text if available
+    if (field.helpText) {
+      questionText += ` (${field.helpText})`;
+    }
+    
+    // Add the question to the chat
+    setIsTyping(true);
+    
+    // Simulate typing effect
+    setTimeout(() => {
+      setIsTyping(false);
       addMessage(questionText, "bot");
-      setCurrentReadingText(questionText);
-    }
-  };
-
-  const isFieldVisible = (field) => {
-    if (!field) return false;
-    if (field.hidden === true) return false;
-    const blockIsVisible = blockVisibility[field.blockId] !== false;
-    if (!blockIsVisible) return false;
-    return fieldVisibility[field.id] !== false;
-  };
-
-  const formatQuestion = (question) => {
-    if (!question) return "";
-    if (/[.?!]$/.test(question.trim())) {
-      return question;
-    }
-    return question + "?";
-  };
-
-  const validateField = (field, value) => {
-    if (field.required && (value === undefined || value === null || value === "")) {
-      setValidationError("This field is required");
-      return false;
-    }
-    setValidationError(null);
-    return true;
-  };
-
-  const findNextVisibleFieldIndex = (currentIndex) => {
-    for (let i = currentIndex + 1; i < fields.length; i++) {
-      if (isFieldVisible(fields[i]) &&
-        fields[i].type !== 'separator' &&
-        fields[i].type !== 'divider' &&
-        !answeredFields[fields[i].id]) {
-        return i;
+      
+      // For signature fields, show the signature pad
+      if (field.type === 'signature' || field.type === 'signatureinput' || field.type === 'signaturepad') {
+        setCurrentSignatureField(field);
+        setShowSignaturePad(true);
       }
-    }
-    return -1;
+    }, 500);
   };
 
-  const isSectionComplete = () => {
-    if (!currentSection) return false;
-    for (const field of fields) {
-      if (field.section === currentSection &&
-        isFieldVisible(field) &&
-        field.type !== 'paragraph' &&
-        field.type !== 'smartbutton' &&
-        field.type !== 'separator' &&
-        field.type !== 'divider' &&
-        !answeredFields[field.id]) {
-        return false;
+  const moveToNextField = () => {
+    const currentField = getCurrentField();
+    if (!currentField) return;
+    
+    const currentSectionId = currentField.section;
+    let nextFieldIndex = currentFieldIndex + 1;
+    
+    // Find the next visible field in the current section
+    while (nextFieldIndex < fields.length) {
+      const nextField = fields[nextFieldIndex];
+      
+      // If we've moved to a different section, stop
+      if (nextField.section !== currentSectionId) {
+        break;
       }
+      
+      // Skip non-input fields
+      if (nextField.type === 'paragraph' || nextField.type === 'separator' || nextField.type === 'divider') {
+        if (nextField.type === 'paragraph' && nextField.content) {
+          addMessage(nextField.content, "bot");
+        }
+        nextFieldIndex++;
+        continue;
+      }
+      
+      // Skip fields that are not visible
+      if (!isFieldVisible(nextField)) {
+        nextFieldIndex++;
+        continue;
+      }
+      
+      // Found a valid next field
+      setCurrentFieldIndex(nextFieldIndex);
+      askQuestion(nextFieldIndex);
+      return;
     }
-    return true;
+    
+    // If we've reached the end of the section, move to the next section
+    moveToNextSection();
   };
 
   const navigateToSection = (sectionName) => {
-    if (!sectionName) return;
-    addMessage(`Let's move to the ${sectionName} section.`, "bot");
-
-    const introTexts = [];
-    let index = 0;
-    let startIndex = fields.findIndex(field => field.section === sectionName);
-
-    if (startIndex >= 0) {
-      index = startIndex;
-      while (index < fields.length) {
-        const field = fields[index];
-        if (field.section === sectionName &&
-          isFieldVisible(field) &&
-          field.type === 'paragraph') {
-          const content = field.properties?.editedParagraph || field.properties?.text;
-          if (content) {
-            const processedContent = replacePlaceholders(content);
-            if (processedContent) {
-              introTexts.push(processedContent);
-            }
-          }
-          index++;
-        } else {
-          break;
-        }
+    setCurrentSection(sectionName);
+    
+    // Add section header message
+    const sectionData = sections.find(s => s.id === sectionName);
+    if (sectionData) {
+      addMessage(`Now let's move to the ${sectionData.title || sectionName} section.`, "bot");
+      
+      // Add section description if available
+      if (sectionData.description) {
+        setTimeout(() => {
+          addMessage(sectionData.description, "bot");
+        }, 1000);
       }
     }
-
-    if (introTexts.length > 0) {
-      const combinedIntro = introTexts.join(' ');
-      addMessage(combinedIntro, "bot");
-    }
-
-    const firstFieldIndex = fields.findIndex(
-      field => field.section === sectionName &&
-      isFieldVisible(field) &&
-      field.type !== 'paragraph' &&
-      field.type !== 'smartbutton' &&
-      field.type !== 'separator' &&
-      field.type !== 'divider' &&
-      !answeredFields[field.id]
-    );
-
+    
+    // Find the first field in this section
+    const firstFieldIndex = findFirstFieldInSection(sectionName);
+    
     if (firstFieldIndex >= 0) {
       setCurrentFieldIndex(firstFieldIndex);
-      setTimeout(() => askQuestion(firstFieldIndex), 100);
+      setTimeout(() => askQuestion(firstFieldIndex), 1000);
     } else {
       const sectionIndex = sections.findIndex(s => s.id === sectionName);
       if (sectionIndex >= 0 && sectionIndex < sections.length - 1) {
@@ -859,19 +700,18 @@ export default function FormChat() {
             continue;
           }
 
-          let rawValue = formData[field.id];
-          if (rawValue === undefined && field.integrationID) {
-            rawValue = formData[field.integrationID];
+          const value = formData[field.id];
+          if (value === undefined || value === null || value === '') {
+            continue;
           }
 
-          let displayValue = rawValue !== undefined ? rawValue : "Not provided";
+          let displayValue = value;
+          let rawValue = value;
 
-          if (field.type === 'dropdowninput' || field.type === 'radioinput') {
-            if (field.properties && field.properties.items && rawValue !== undefined) {
-              const selectedItem = field.properties.items.find(item => item && item.value === rawValue);
-              if (selectedItem && selectedItem.label) {
-                displayValue = selectedItem.label;
-              }
+          if (field.type === 'select' || field.type === 'dropdown') {
+            const option = field.options?.find(opt => opt.value === value);
+            if (option) {
+              displayValue = option.label;
             }
           } else if (field.type === 'checkboxinput') {
             displayValue = rawValue === true ? 'Yes' : 'No';
@@ -886,563 +726,532 @@ export default function FormChat() {
           }
 
           summaryData.push({
-            section: field.section,
-            integrationID: field.integrationID || field.id,
-            question: field.label,
-            answer: displayValue
+            label: field.label || field.id,
+            value: displayValue,
+            rawValue: rawValue,
+            integrationId: field.integrationId || field.id
           });
         }
 
-        setMessages(prev => [
-          ...prev,
-          { text: "Thank you for completing the form! Here's a summary of your responses:", type: "bot" },
-          { type: "summary", data: summaryData }
-        ]);
+        addMessage("Thank you for completing the form. Here's a summary of your responses:", "bot");
+        addMessage(<SummaryTable data={summaryData} />, "bot", "summary");
+        
+        // Show rating input after form completion
+        setShowRatingInput(true);
+        addMessage("Please rate your experience with this form:", "bot");
+        addMessage(<div className="flex justify-center w-full">
+          <div className="rating-stars flex space-x-1">
+            {[1, 2, 3, 4, 5].map(rating => (
+              <button
+                key={rating}
+                className={`p-2 rounded-full ${userRating >= rating ? 'text-yellow-400' : 'text-gray-300'}`}
+                onClick={() => handleRatingSubmit(rating)}
+              >
+                ★
+              </button>
+            ))}
+          </div>
+        </div>, "bot", "rating-input");
+        
+        // Mark the session as complete
+        markSessionComplete(formData);
       }
     }
+  };
+
+  const findFirstFieldInSection = (sectionName) => {
+    return fields.findIndex(field => 
+      field.section === sectionName && 
+      field.type !== 'paragraph' && 
+      field.type !== 'separator' && 
+      field.type !== 'divider' &&
+      isFieldVisible(field)
+    );
+  };
+
+  const getCurrentField = () => {
+    if (currentFieldIndex >= 0 && currentFieldIndex < fields.length) {
+      return fields[currentFieldIndex];
+    }
+    return null;
+  };
+
+  const isFieldVisible = (field) => {
+    if (!field) return false;
+    
+    // Check if field has explicit visibility setting
+    if (fieldVisibility[field.id] === false) {
+      return false;
+    }
+    
+    // Check if field's block has visibility setting
+    if (field.blockId && blockVisibility[`block_${field.blockId}`] === false) {
+      return false;
+    }
+    
+    return true;
+  };
+
+  const processVisibilityRules = (fieldId, value) => {
+    const relevantRules = visibilityRules.filter(rule => 
+      rule.condition && rule.condition.when === fieldId
+    );
+    
+    if (relevantRules.length === 0) return;
+    
+    const updatedBlockVisibility = { ...blockVisibility };
+    const updatedFieldVisibility = { ...fieldVisibility };
+    
+    relevantRules.forEach(rule => {
+      const { when, is } = rule.condition;
+      
+      const conditionMet = Array.isArray(is) 
+        ? is.includes(value)
+        : value === is;
+      
+      if (rule.actions) {
+        rule.actions.forEach(action => {
+          const { elementIdentifier, action: actionType } = action;
+          if (!elementIdentifier) return;
+          
+          const isVisible = actionType === 'show' ? conditionMet : !conditionMet;
+          
+          if (elementIdentifier.startsWith('block_')) {
+            updatedBlockVisibility[elementIdentifier] = isVisible;
+          } else {
+            updatedFieldVisibility[elementIdentifier] = isVisible;
+          }
+        });
+      }
+    });
+    
+    setBlockVisibility(updatedBlockVisibility);
+    setFieldVisibility(updatedFieldVisibility);
+  };
+
+  const validateInput = (value, validation) => {
+    if (!validation) return true;
+    
+    if (validation.required && (value === undefined || value === null || value === '')) {
+      return false;
+    }
+    
+    if (validation.pattern && value) {
+      const regex = new RegExp(validation.pattern);
+      if (!regex.test(value)) {
+        return false;
+      }
+    }
+    
+    if (validation.minLength && value && value.length < validation.minLength) {
+      return false;
+    }
+    
+    if (validation.maxLength && value && value.length > validation.maxLength) {
+      return false;
+    }
+    
+    return true;
+  };
+
+  const formatDate = (dateString) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString();
+    } catch (e) {
+      return dateString;
+    }
+  };
+
+  const handleSignatureCapture = (signatureDataUrl) => {
+    if (!currentSignatureField) return;
+    
+    setShowSignaturePad(false);
+    handleFormResponse(signatureDataUrl);
+  };
+
+  const handleSignatureCancel = () => {
+    setShowSignaturePad(false);
+    moveToNextField();
+  };
+
+  const handleVoiceToggle = () => {
+    setVoiceActive(!voiceActive);
+    
+    if (!voiceActive && lastBotMessageRef.current) {
+      speakText(lastBotMessageRef.current);
+    } else if (voiceActive && speechSynthesisRef.current) {
+      speechSynthesisRef.current.cancel();
+      setIsSpeaking(false);
+      setCurrentReadingText("");
+    }
+  };
+
+  const handleVoiceInput = (transcript) => {
+    const currentField = getCurrentField();
+    if (!currentField) return;
+    
+    handleFormResponse(transcript, 'voice');
+  };
+
+  const handleKnowledgeBaseToggle = () => {
+    setShowKnowledgeBase(!showKnowledgeBase);
+  };
+
+  const handleKnowledgeBaseSearch = async (query) => {
+    setKnowledgeBaseQuery(query);
+    setIsSearchingKnowledgeBase(true);
+    
+    try {
+      // Simulate knowledge base search
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const results = [
+        {
+          title: "How to complete this form",
+          content: "This form guides you through a series of questions. Simply answer each question and the system will guide you to the next appropriate question based on your responses."
+        },
+        {
+          title: "What happens after submission",
+          content: "After you submit this form, your responses will be reviewed by our team. You will receive a confirmation email with a reference number for your submission."
+        },
+        {
+          title: "Contact support",
+          content: "If you need assistance with this form, please contact our support team at support@example.com or call 1-800-555-1234 during business hours."
+        }
+      ];
+      
+      setKnowledgeBaseResults(results);
+    } catch (error) {
+      console.error("Error searching knowledge base:", error);
+    } finally {
+      setIsSearchingKnowledgeBase(false);
+    }
+  };
+
+  const handleKnowledgeBaseResultClick = (result) => {
+    addMessage(`I have a question about: ${result.title}`, "user");
+    addMessage(result.content, "bot", "knowledge");
+    trackQuestion(result.title, result.content);
+    setShowKnowledgeBase(false);
+  };
+
+  const getSmartButtons = () => {
+    const currentField = getCurrentField();
+    if (!currentField || !currentField.smartButtons || !Array.isArray(currentField.smartButtons)) {
+      return [];
+    }
+    
+    return currentField.smartButtons;
+  };
+
+  const handleSmartButtonClick = (buttonValue) => {
+    handleFormResponse(buttonValue);
   };
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (!file) return;
-
+    
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const jsonContent = e.target.result;
-        setJsonText(jsonContent);
+        const schema = JSON.parse(e.target.result);
+        initializeForm(schema);
+        setShowUploadModal(false);
       } catch (error) {
-        console.error("Error reading file:", error);
-        alert("Failed to read the file");
+        console.error("Error parsing JSON:", error);
+        alert("Invalid JSON file. Please upload a valid form schema.");
       }
     };
     reader.readAsText(file);
   };
 
-  const applyRules = () => {
-    console.log("Applying rules...");
-    applyVisibilityRules();
-    applyUpdatingRules();
+  const handleJsonTextChange = (e) => {
+    setJsonText(e.target.value);
   };
 
-  const applyVisibilityRules = () => {
-    if (!visibilityRules || visibilityRules.length === 0) return;
-
-    console.log(`Processing ${visibilityRules.length} visibility rules`);
-
-    const newBlockVisibility = { ...blockVisibility };
-    const newFieldVisibility = { ...fieldVisibility };
-
-    visibilityRules.forEach(rule => {
-      try {
-        if (!rule.condition || !rule.condition.when || !rule.condition.is || !rule.actions) return;
-
-        const { when: targetField, is: expectedValue } = rule.condition;
-        const currentValue = formData[targetField];
-
-        console.log(`Rule for ${targetField}: value is ${currentValue}, expecting ${expectedValue}`);
-
-        let conditionMet = Array.isArray(expectedValue)
-          ? expectedValue.includes(currentValue)
-          : currentValue === expectedValue;
-
-        console.log(`Condition met: ${conditionMet}`);
-
-        rule.actions.forEach(action => {
-          if (!action.elementIdentifier) return;
-
-          const isBlock = !action.elementIdentifier.includes('field_');
-
-          if (isBlock) {
-            newBlockVisibility[action.elementIdentifier] = action.action === 'show' ? conditionMet : !conditionMet;
-            console.log(`Setting block ${action.elementIdentifier} visibility to ${newBlockVisibility[action.elementIdentifier]}`);
-
-            fields.forEach(field => {
-              if (field.blockId === action.elementIdentifier) {
-                newFieldVisibility[field.id] = newBlockVisibility[action.elementIdentifier];
-                console.log(`Setting field ${field.id} visibility to ${newFieldVisibility[field.id]}`);
-              }
-            });
-          } else {
-            newFieldVisibility[action.elementIdentifier] = action.action === 'show' ? conditionMet : !conditionMet;
-            console.log(`Setting field ${action.elementIdentifier} visibility to ${newFieldVisibility[action.elementIdentifier]}`);
-          }
-        });
-      } catch (error) {
-        console.error("Error processing visibility rule:", error);
-      }
-    });
-
-    setBlockVisibility(newBlockVisibility);
-    setFieldVisibility(newFieldVisibility);
-  };
-
-  const applyUpdatingRules = () => {
-    if (!updatingRules || updatingRules.length === 0) return;
-
-    updatingRules.forEach(rule => {
-      try {
-        if (!rule.condition || !rule.condition.when || !rule.condition.is || !rule.actions) return;
-
-        const { when: targetField, is: expectedValue } = rule.condition;
-        const currentValue = formData[targetField];
-
-        let conditionMet = Array.isArray(expectedValue) ? expectedValue.includes(currentValue) : currentValue === expectedValue;
-
-        if (conditionMet) {
-          rule.actions.forEach(action => {
-            if (!action.elementIdentifier || action.action !== 'update' || !action.properties) return;
-
-            const fieldIndex = fields.findIndex(f => f.id === action.elementIdentifier);
-            if (fieldIndex === -1) return;
-
-            const updatedFields = [...fields];
-            updatedFields[fieldIndex] = {
-              ...updatedFields[fieldIndex],
-              properties: {
-                ...updatedFields[fieldIndex].properties,
-                ...action.properties
-              }
-            };
-
-            setFields(updatedFields);
-          });
-        }
-      } catch (error) {
-        console.error("Error processing updating rule:", error);
-      }
-    });
-  };
-
-  const getDisplayValue = (currentField, value) => {
-    let displayValue = value;
-
-    if (currentField.type === 'dropdowninput' || currentField.type === 'radioinput') {
-      if (currentField.properties && currentField.properties.items) {
-        const selectedItem = currentField.properties.items.find(item => item && item.value === value);
-        if (selectedItem && selectedItem.label) {
-          displayValue = selectedItem.label;
-        }
-      }
-    } else if (currentField.type === 'checkboxinput') {
-      displayValue = value === true ? 'Yes' : 'No';
-    } else if (currentField.type === 'ratinginput') {
-      displayValue = `${value} stars`;
-    } else if (currentField.type === 'signature' || currentField.type === 'signatureinput' || currentField.type === 'signaturepad') {
-      displayValue = "Signature provided";
-    }
-
-    return displayValue;
-  };
-
-  const extractDataFromSchema = (schema) => {
-    console.log("Extracting schema data...");
-
-    const extractedFields = [];
-    const extractedSections = [];
-    const extractedVisibilityRules = [];
-    const extractedUpdatingRules = [];
-    const extractedGlobalVars = {};
-    const initialBlockVisibility = {};
-    const initialFieldVisibility = {};
-
+  const handleJsonSubmit = () => {
     try {
-      if (schema && schema.form) {
-        if (Array.isArray(schema.form.globalVariables)) {
-          schema.form.globalVariables.forEach(variable => {
-            if (variable && variable.integrationID) {
-              extractedGlobalVars[variable.integrationID] = variable.value || '';
-            }
-          });
-        }
-
-        if (Array.isArray(schema.form.newRules)) {
-          schema.form.newRules.forEach(rule => {
-            if (rule && rule.type) {
-              if (rule.type === "visibility") {
-                extractedVisibilityRules.push(rule);
-              } else if (rule.type === "updating") {
-                extractedUpdatingRules.push(rule);
-              }
-            }
-          });
-        }
-
-        if (Array.isArray(schema.form.steps)) {
-          schema.form.steps.forEach((step, stepIndex) => {
-            if (!step) return;
-
-            const sectionName = step.stepName || `Section ${stepIndex + 1}`;
-            const nextStep = stepIndex < schema.form.steps.length - 1
-              ? (schema.form.steps[stepIndex + 1] ? schema.form.steps[stepIndex + 1].stepName : null)
-              : null;
-
-            extractedSections.push({
-              id: sectionName,
-              identifier: step.identifier || '',
-              next: nextStep
-            });
-
-            if (!Array.isArray(step.blocks)) return;
-
-            step.blocks.forEach(block => {
-              if (!block) return;
-
-              const isHidden = block.hidden === true || block.isHiddenInRuntime === true;
-              initialBlockVisibility[block.identifier] = !isHidden;
-
-              if (block.blockName && !isHidden) {
-                extractedFields.push({
-                  id: block.identifier + "_title",
-                  label: block.blockName,
-                  type: "paragraph",
-                  required: false,
-                  section: sectionName,
-                  stepIdentifier: step.identifier || '',
-                  integrationID: block.identifier + "_title",
-                  blockId: block.identifier,
-                  hidden: isHidden,
-                  properties: {
-                    text: block.blockName,
-                    editedParagraph: block.blockName
-                  }
-                });
-              }
-
-              if (!Array.isArray(block.rows) || block.rows.length === 0) return;
-
-              block.rows.forEach(row => {
-                if (!row || !Array.isArray(row.fields)) return;
-
-                row.fields.forEach(field => {
-                  if (!field || !field.type || !field.identifier) return;
-
-                  const fieldObj = {
-                    id: field.identifier,
-                    label: field.label || "",
-                    type: field.type.toLowerCase(),
-                    required: !!field.required,
-                    section: sectionName,
-                    stepIdentifier: step.identifier || '',
-                    integrationID: field.integrationID || field.identifier,
-                    blockId: block.identifier,
-                    blockName: block.blockName || "",
-                    hidden: isHidden || field.isHiddenInRuntime === true,
-                    properties: field
-                  };
-
-                  extractedFields.push(fieldObj);
-                  initialFieldVisibility[field.identifier] = !isHidden && !field.isHiddenInRuntime;
-                });
-              });
-            });
-          });
-        }
-      }
-
-      console.log(`Extracted ${extractedFields.length} fields and ${extractedSections.length} sections`);
-
+      const schema = JSON.parse(jsonText);
+      initializeForm(schema);
+      setShowUploadModal(false);
     } catch (error) {
-      console.error("Error during schema extraction:", error);
-    }
-
-    return {
-      extractedFields,
-      extractedSections,
-      extractedVisibilityRules,
-      extractedUpdatingRules,
-      extractedGlobalVars,
-      initialBlockVisibility,
-      initialFieldVisibility
-    };
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return "";
-
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return dateString;
-
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
-    } catch (error) {
-      console.error("Error formatting date:", error);
-      return dateString;
+      console.error("Error parsing JSON:", error);
+      alert("Invalid JSON. Please check your input and try again.");
     }
   };
 
-  const renderInputArea = () => {
-    if (!formLoaded || loading || completed || !getCurrentField()) {
-      return null;
-    }
-
-    const currentField = getCurrentField();
-
-    if (voiceActive) {
-      return (
-        <div className="border-t bg-white p-4 sticky bottom-0">
-          <div className="mb-4">
-            <SimpleVoice
-              onTextRecognized={handleSpeechRecognized}
-              textToSpeak={currentReadingText}
-              autoSpeak={true}
-            />
-          </div>
-
-          {renderCurrentField()}
-        </div>
-      );
-    }
-
+  if (!formLoaded || loading || !getCurrentField()) {
     return (
-      <div className="border-t bg-white p-4 sticky bottom-0">
-        <ChatMessage message="" type="bot">
-          {renderCurrentField()}
-        </ChatMessage>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+        <div className="w-full max-w-md p-6 bg-white rounded-lg shadow-md">
+          <h1 className="text-xl font-semibold text-center mb-4">{formTitle || "Form Chat"}</h1>
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          </div>
+          <p className="text-center mt-4 text-gray-600">Loading form...</p>
+        </div>
       </div>
     );
-  };
-
-  const renderCurrentField = () => {
-    if (!fields || currentFieldIndex < 0 || currentFieldIndex >= fields.length) {
-      return null;
-    }
-
-    const field = fields[currentFieldIndex];
-
-    if (!field || !isFieldVisible(field)) {
-      return null;
-    }
-
-    if (field.type === 'signature' || field.type === 'signatureinput' || field.type === 'signaturepad') {
-      return (
-        <SignaturePad
-          onSubmit={(signatureData) => handleFormResponse(signatureData, 'manual')}
-          onCancel={() => {
-            if (field.required) {
-              setValidationError("This field is required");
-            } else {
-              handleSkip();
-            }
-          }}
-        />
-      );
-    }
-
-    return (
-      <FormField
-        field={field}
-        value={currentInputValue}
-        onChange={handleFieldSubmit}
-        onInputChange={handleInputChange}
-        onSkip={!field.required ? handleSkip : null}
-        validationError={validationError}
-      />
-    );
-  };
-
-  const handleSkip = () => {
-    const currentField = getCurrentField();
-    if (!currentField) return;
-
-    console.log(`Skipping field ${currentField.id}`);
-
-    setAnsweredFields(prev => ({
-      ...prev,
-      [currentField.id]: true
-    }));
-
-    addMessage("Skipped", "user");
-
-    const nextFieldIndex = findNextVisibleFieldIndex(currentFieldIndex);
-    if (nextFieldIndex >= 0) {
-      setCurrentFieldIndex(nextFieldIndex);
-      setCurrentQuestionIndex(nextFieldIndex);
-      setTimeout(() => {
-        askQuestion(nextFieldIndex);
-      }, 100);
-    } else if (isSectionComplete()) {
-      moveToNextSection();
-    }
-  };
-
-  const handleSmartButtonClick = (stepIdentifier) => {
-    if (!stepIdentifier) return;
-
-    const targetSection = sections.find(section => section.stepIdentifier === stepIdentifier);
-    if (targetSection) {
-      navigateToSection(targetSection.id);
-    }
-  };
+  }
 
   return (
-    <div className="flex flex-col h-screen bg-white">
-      <div className="flex items-center gap-2 p-4 border-b">
-        <Button variant="ghost" size="icon" disabled={loading}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex-1">
-          <h1 className="text-xl font-semibold">{formTitle || "Form"}</h1>
-          <p className="text-sm text-gray-500">
-            {loading ? 'Loading form...' : formLoaded ? currentSection : 'Please upload a form schema'}
-          </p>
+    <div className="flex flex-col min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm p-4 flex items-center justify-between">
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => window.history.back()}
+            className="mr-2"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <h1 className="text-xl font-semibold">{formTitle}</h1>
         </div>
-
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1 mr-2"
-          onClick={() => setShowUploadModal(true)}
-        >
-          <Upload className="h-4 w-4" />
-          Upload Schema
-        </Button>
-      </div>
-
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto p-4">
-          <div className="space-y-1">
-            {!formLoaded && !showUploadModal && (
-              <div className="flex flex-col items-center justify-center h-64">
-                <p className="text-gray-500 mb-4">Welcome to the Form Assistant</p>
-                <Button
-                  onClick={() => setShowUploadModal(true)}
-                  className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload Form Schema
-                </Button>
+        
+        <div className="flex items-center space-x-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleVoiceToggle}
+            className={`${voiceActive ? 'bg-blue-100 text-blue-700' : ''}`}
+          >
+            {voiceActive ? 'Voice On' : 'Voice Off'}
+          </Button>
+          
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowUploadModal(true)}
+          >
+            <Upload className="h-5 w-5" />
+          </Button>
+        </div>
+      </header>
+      
+      {/* Main content */}
+      <main className="flex-1 p-4 overflow-y-auto">
+        <div className="max-w-3xl mx-auto">
+          {/* Chat messages */}
+          <div className="space-y-4 mb-4">
+            {messages.map((message) => (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                isReading={isSpeaking && currentReadingText === message.content}
+              />
+            ))}
+            
+            {isTyping && (
+              <div className="flex items-start">
+                <Avatar />
+                <div className="ml-3 p-3 bg-white rounded-lg shadow-sm">
+                  <div className="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                </div>
               </div>
             )}
-
-            {messages.map((message, index) => {
-              if (message.type === "summary") {
-                return (
-                  <ChatMessage key={index} message="" type="bot">
-                    <SummaryTable data={message.data} />
-                  </ChatMessage>
-                );
-              }
-              return (
-                <ChatMessage
-                  key={index}
-                  message={message.text || ""}
-                  type={message.type || "bot"}
-                />
-              );
-            })}
-
-            {formLoaded && !loading && !completed && getSmartButtons().length > 0 && (
-              <ChatMessage message="You can navigate to:" type="bot">
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {getSmartButtons().map(button => (
+            
+            <div ref={bottomRef} />
+          </div>
+          
+          {/* Input area */}
+          {formLoaded && !loading && !completed && !getCurrentField() && (
+            <div className="bg-white rounded-lg shadow-sm p-4 mt-4">
+              <p className="text-center text-gray-600">
+                Loading next question...
+              </p>
+            </div>
+          )}
+          
+          {formLoaded && !loading && !completed && getCurrentField() && (
+            <div className="bg-white rounded-lg shadow-sm p-4 mt-4">
+              <FormField
+                field={getCurrentField()}
+                value={formData[getCurrentField().id]}
+                onChange={handleFormResponse}
+                error={validationError}
+              />
+              
+              {/* Smart buttons */}
+              {formLoaded && !loading && !completed && getSmartButtons().length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {getSmartButtons().map((button, index) => (
                     <Button
-                      key={button.id}
-                      onClick={() => handleSmartButtonClick(
-                        button.properties?.selectedStep?.identifier || ""
-                      )}
+                      key={index}
                       variant="outline"
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                      onClick={() => handleSmartButtonClick(button.value)}
                     >
-                      {button.label || "Continue"}
+                      {button.label}
                     </Button>
                   ))}
                 </div>
-              </ChatMessage>
+              )}
+            </div>
+          )}
+          
+          {completed && (
+            <div className="bg-white rounded-lg shadow-sm p-4 mt-4">
+              <p className="text-center text-gray-600">
+                Form completed. Thank you for your responses.
+              </p>
+            </div>
+          )}
+        </div>
+      </main>
+      
+      {/* Footer */}
+      <footer className="bg-white shadow-sm p-4 mt-auto">
+        <div className="max-w-3xl mx-auto flex justify-between items-center">
+          <div className="text-sm text-gray-500">
+            {currentSection && (
+              <span>
+                Section: {sections.find(s => s.id === currentSection)?.title || currentSection}
+              </span>
             )}
-
-            {isTyping && (
-              <ChatMessage isTyping={true} type="bot" />
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            {/* Knowledge base button */}
+            <KnowledgeBaseButton onClick={handleKnowledgeBaseToggle} />
+            
+            {/* Voice input button */}
+            {voiceActive && (
+              <SimpleVoice
+                onResult={handleVoiceInput}
+                onListeningChange={setVoiceListening}
+                disabled={completed}
+              />
             )}
-
-            <div ref={bottomRef} />
           </div>
         </div>
-
-        {renderInputArea()}
-      </div>
-
-      {showSignaturePad && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-full max-w-lg">
-            <h2 className="text-xl font-bold mb-4">Signature</h2>
-            <SignaturePad onSubmit={handleSignatureSubmit} onCancel={handleSignatureCancel} />
+      </footer>
+      
+      {/* Knowledge base panel */}
+      {showKnowledgeBase && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md max-h-[80vh] flex flex-col">
+            <div className="p-4 border-b">
+              <h2 className="text-lg font-semibold">Knowledge Base</h2>
+            </div>
+            
+            <div className="p-4">
+              <KnowledgeBaseInput
+                value={knowledgeBaseQuery}
+                onChange={setKnowledgeBaseQuery}
+                onSearch={handleKnowledgeBaseSearch}
+                isSearching={isSearchingKnowledgeBase}
+              />
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4">
+              {knowledgeBaseResults.length > 0 ? (
+                <div className="space-y-3">
+                  {knowledgeBaseResults.map((result, index) => (
+                    <div
+                      key={index}
+                      className="p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleKnowledgeBaseResultClick(result)}
+                    >
+                      <h3 className="font-medium">{result.title}</h3>
+                      <p className="text-sm text-gray-600 mt-1 line-clamp-2">{result.content}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center text-gray-500">
+                  {isSearchingKnowledgeBase
+                    ? "Searching..."
+                    : knowledgeBaseQuery
+                      ? "No results found. Try a different search term."
+                      : "Enter a question to search the knowledge base."}
+                </p>
+              )}
+            </div>
+            
+            <div className="p-4 border-t">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={handleKnowledgeBaseToggle}
+              >
+                Close
+              </Button>
+            </div>
           </div>
         </div>
       )}
-
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-full max-w-lg">
-            <h2 className="text-xl font-bold mb-4">Upload Form Schema</h2>
-            <div className="mb-4">
-              <p className="text-sm text-gray-500 mb-2">
-                Upload a JSON file containing the form schema, or paste the JSON content below.
-              </p>
-              <input
-                type="file"
-                accept=".json,.cvuf"
-                onChange={handleFileUpload}
-                ref={fileInputRef}
-                className="w-full mb-2"
-              />
-              <p className="text-sm mb-2">Or paste JSON content:</p>
-              <textarea
-                value={jsonText}
-                onChange={(e) => setJsonText(e.target.value)}
-                className="w-full h-40 border rounded p-2 text-sm"
-                placeholder='{"form": {...}}'
-              />
+      
+      {/* Signature pad modal */}
+      {showSignaturePad && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
+            <div className="p-4 border-b">
+              <h2 className="text-lg font-semibold">Signature</h2>
             </div>
-            <div className="flex justify-end gap-2">
+            
+            <SignaturePad
+              onCapture={handleSignatureCapture}
+              onCancel={handleSignatureCancel}
+            />
+          </div>
+        </div>
+      )}
+      
+      {/* Upload form schema modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
+            <div className="p-4 border-b">
+              <h2 className="text-lg font-semibold">Upload Form Schema</h2>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Upload JSON File
+                </label>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleFileUpload}
+                  className="w-full p-2 border rounded-md"
+                />
+              </div>
+              
+              <div className="- my-2 border-t"></div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Or Paste JSON
+                </label>
+                <textarea
+                  value={jsonText}
+                  onChange={handleJsonTextChange}
+                  className="w-full p-2 border rounded-md h-40"
+                  placeholder='{"title": "My Form", "form": {"sections": []}}'
+                />
+              </div>
+            </div>
+            
+            <div className="p-4 border-t flex justify-end space-x-2">
               <Button
                 variant="outline"
                 onClick={() => setShowUploadModal(false)}
               >
                 Cancel
               </Button>
-              <Button
-                onClick={processFormSchema}
-                disabled={!jsonText}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                Process Schema
+              <Button onClick={handleJsonSubmit}>
+                Load Form
               </Button>
             </div>
           </div>
-        </div>
-      )}
-
-      {interactionMode === 'avatar' && (
-        <div className="fixed right-8 bottom-24 z-10">
-          <div className="animate-fade-in">
-            <Avatar speaking={isSpeaking} />
-          </div>
-        </div>
-      )}
-
-      <div className="fixed right-6 bottom-24 z-10">
-        <KnowledgeBaseButton 
-          onClick={() => setShowKnowledgeBase(!showKnowledgeBase)}
-          isActive={showKnowledgeBase}
-        />
-      </div>
-
-      {showKnowledgeBase && (
-        <div className="fixed right-6 bottom-36 z-10 animate-fade-in">
-          <KnowledgeBaseInput
-            onQuestion={question => 
-              setKnowledgeBaseQuestions(prev => [
-                ...prev,
-                { question, timestamp: new Date().toISOString() }
-              ])}
-            onAnswer={answer => answer && addMessage(answer, "bot")}
-            onClose={() => setShowKnowledgeBase(false)}
-          />
         </div>
       )}
     </div>
