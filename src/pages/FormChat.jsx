@@ -85,9 +85,15 @@ export default function FormChat() {
     const urlParams = new URLSearchParams(window.location.search);
     const formId = urlParams.get('formId');
     const processIdParam = urlParams.get('processId');
+    const modeParam = urlParams.get('mode');
+    
+    console.log("URL Parameters:", { formId, processId: processIdParam, mode: modeParam });
     
     if (processIdParam) {
       setProcessId(processIdParam);
+      if (modeParam) {
+        setInteractionMode(modeParam);
+      }
       loadProcess(processIdParam);
     } else if (formId) {
       loadForm(formId);
@@ -111,7 +117,9 @@ export default function FormChat() {
   const loadProcess = async (processId) => {
     try {
       setLoading(true);
+      console.log("Loading process with ID:", processId);
       const processes = await Process.filter({ id: processId });
+      console.log("Process filter result:", processes);
       
       if (processes.length === 0) {
         console.error("Process not found");
@@ -122,6 +130,7 @@ export default function FormChat() {
       setProcessName(process.name || "Form Process");
       
       if (process.formSchemaId) {
+        console.log("Loading form schema with ID:", process.formSchemaId);
         loadForm(process.formSchemaId);
       } else {
         console.error("No form schema associated with this process");
@@ -132,14 +141,23 @@ export default function FormChat() {
       setSessionId(newSessionId);
       
       try {
+        console.log("Creating new session:", {
+          sessionId: newSessionId,
+          processId: processId,
+          mode: interactionMode,
+          startTime: new Date().toISOString()
+        });
+        
         await Session.create({
           sessionId: newSessionId,
           processId: processId,
-          mode: "chat",
+          mode: interactionMode,
           startTime: new Date().toISOString(),
           completed: false,
           formData: {}
         });
+        
+        console.log("Session created successfully");
       } catch (error) {
         console.error("Error creating session:", error);
       }
@@ -154,7 +172,9 @@ export default function FormChat() {
   const loadForm = async (formId) => {
     try {
       setLoading(true);
+      console.log("Loading form schema with ID:", formId);
       const formSchemas = await FormSchema.filter({ id: formId });
+      console.log("Form schema filter result:", formSchemas);
       
       if (formSchemas.length === 0) {
         console.error("Form schema not found");
@@ -446,7 +466,7 @@ export default function FormChat() {
     setFormLoaded(true);
     
     // Start the conversation
-    const introMessage = schema.messages?.welcome || `Welcome to ${schema.title || "our form"}. I'll guide you through the process.`;
+    let introMessage = schema.messages?.welcome || `Welcome to ${schema.title || "our form"}. I'll guide you through the process.`;
     const firstSection = sections[0]?.id;
     if (firstSection) {
       introMessage += ` Let's start with the ${firstSection} section.`;
@@ -982,7 +1002,7 @@ export default function FormChat() {
     }
   };
 
-  if (!formLoaded || loading || !getCurrentField()) {
+  if (!formLoaded || loading || completed || !getCurrentField()) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
         <div className="w-full max-w-md p-6 bg-white rounded-lg shadow-md">
@@ -990,7 +1010,9 @@ export default function FormChat() {
           <div className="flex justify-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
           </div>
-          <p className="text-center mt-4 text-gray-600">Loading form...</p>
+          <p className="text-center mt-4 text-gray-600">
+            {loading ? "Loading form..." : completed ? "Form completed" : "Initializing..."}
+          </p>
         </div>
       </div>
     );
