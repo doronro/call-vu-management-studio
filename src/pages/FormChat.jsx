@@ -18,6 +18,12 @@ const MOCK_PROCESSES = [
     name: "Customer Onboarding",
     description: "Process for onboarding new customers",
     formSchemaId: "form1"
+  },
+  {
+    id: "financial_charge_dispute",
+    name: "Financial Charge Dispute",
+    description: "Process for disputing financial charges",
+    formSchemaId: "financial_charge_dispute_form"
   }
 ];
 
@@ -88,6 +94,149 @@ const MOCK_FORM_SCHEMAS = [
         }
       ]
     }
+  },
+  {
+    id: "financial_charge_dispute_form",
+    title: "Financial Charge Dispute",
+    messages: {
+      welcome: "Welcome to the Financial Charge Dispute process. I'll help you file a dispute for unauthorized or incorrect charges."
+    },
+    form: {
+      sections: [
+        {
+          id: "dispute_info",
+          title: "Dispute Information",
+          description: "Please provide details about the disputed charge",
+          fields: [
+            {
+              id: "account_number",
+              label: "What is your account number?",
+              type: "text",
+              required: true,
+              integrationId: "dispute.accountNumber"
+            },
+            {
+              id: "transaction_date",
+              label: "When did the transaction occur?",
+              type: "date",
+              required: true,
+              integrationId: "dispute.transactionDate"
+            },
+            {
+              id: "transaction_amount",
+              label: "What was the transaction amount?",
+              type: "currency",
+              required: true,
+              integrationId: "dispute.transactionAmount"
+            },
+            {
+              id: "merchant_name",
+              label: "What is the merchant name?",
+              type: "text",
+              required: true,
+              integrationId: "dispute.merchantName"
+            }
+          ]
+        },
+        {
+          id: "dispute_reason",
+          title: "Dispute Reason",
+          description: "Please provide the reason for your dispute",
+          fields: [
+            {
+              id: "dispute_type",
+              label: "What type of dispute is this?",
+              type: "select",
+              required: true,
+              integrationId: "dispute.type",
+              options: [
+                { value: "unauthorized", label: "Unauthorized charge" },
+                { value: "incorrect_amount", label: "Incorrect amount charged" },
+                { value: "product_not_received", label: "Product or service not received" },
+                { value: "defective_product", label: "Defective product or service" },
+                { value: "duplicate_charge", label: "Duplicate charge" },
+                { value: "other", label: "Other" }
+              ]
+            },
+            {
+              id: "dispute_description",
+              label: "Please describe the issue in detail",
+              type: "textarea",
+              required: true,
+              integrationId: "dispute.description"
+            },
+            {
+              id: "contacted_merchant",
+              label: "Have you contacted the merchant about this issue?",
+              type: "select",
+              required: true,
+              integrationId: "dispute.contactedMerchant",
+              options: [
+                { value: "yes", label: "Yes" },
+                { value: "no", label: "No" }
+              ]
+            }
+          ]
+        },
+        {
+          id: "supporting_documents",
+          title: "Supporting Documents",
+          description: "Please provide any supporting documents for your dispute",
+          fields: [
+            {
+              id: "has_receipt",
+              label: "Do you have a receipt or proof of purchase?",
+              type: "select",
+              required: true,
+              integrationId: "dispute.hasReceipt",
+              options: [
+                { value: "yes", label: "Yes" },
+                { value: "no", label: "No" }
+              ]
+            },
+            {
+              id: "has_correspondence",
+              label: "Do you have any correspondence with the merchant?",
+              type: "select",
+              required: true,
+              integrationId: "dispute.hasCorrespondence",
+              options: [
+                { value: "yes", label: "Yes" },
+                { value: "no", label: "No" }
+              ]
+            },
+            {
+              id: "additional_comments",
+              label: "Do you have any additional comments or information?",
+              type: "textarea",
+              required: false,
+              integrationId: "dispute.additionalComments"
+            }
+          ]
+        },
+        {
+          id: "confirmation",
+          title: "Confirmation",
+          description: "Please confirm your dispute submission",
+          fields: [
+            {
+              id: "confirm_accurate",
+              label: "I confirm that all information provided is accurate and complete",
+              type: "checkbox",
+              required: true,
+              integrationId: "dispute.confirmAccurate"
+            },
+            {
+              id: "signature",
+              label: "Please sign to authorize this dispute",
+              type: "signature",
+              required: true,
+              integrationId: "dispute.signature"
+            }
+          ]
+        }
+      ]
+    }
   }
 ];
 
@@ -95,7 +244,9 @@ const MOCK_FORM_SCHEMAS = [
 const mockProcessFilter = async (query) => {
   console.log("Mock Process.filter called with:", query);
   if (query && query.id) {
-    return MOCK_PROCESSES.filter(p => p.id === query.id);
+    const matchingProcesses = MOCK_PROCESSES.filter(p => p.id === query.id);
+    console.log("Matching processes:", matchingProcesses);
+    return matchingProcesses;
   }
   return MOCK_PROCESSES;
 };
@@ -103,7 +254,9 @@ const mockProcessFilter = async (query) => {
 const mockFormSchemaFilter = async (query) => {
   console.log("Mock FormSchema.filter called with:", query);
   if (query && query.id) {
-    return MOCK_FORM_SCHEMAS.filter(f => f.id === query.id);
+    const matchingSchemas = MOCK_FORM_SCHEMAS.filter(f => f.id === query.id);
+    console.log("Matching form schemas:", matchingSchemas);
+    return matchingSchemas;
   }
   return MOCK_FORM_SCHEMAS;
 };
