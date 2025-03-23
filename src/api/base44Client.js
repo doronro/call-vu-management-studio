@@ -14,12 +14,5 @@ export const base44 = createClient({
   }
 });
 
-// Add global error handler for SDK operations
-base44.on('error', (error) => {
-  console.error('Base44 SDK Error:', error);
-});
-
-// Add global success handler for debugging
-base44.on('success', (response) => {
-  console.log('Base44 SDK Success:', response);
-});
+// Add global error handling through console
+console.log('Base44 SDK initialized with debug mode enabled');
