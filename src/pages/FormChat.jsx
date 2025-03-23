@@ -10,301 +10,7 @@ import Avatar from '../components/chat/Avatar';
 import SimpleVoice from '../components/chat/SimpleVoice';
 import KnowledgeBaseButton from '../components/chat/KnowledgeBaseButton'; 
 import KnowledgeBaseInput from '../components/chat/KnowledgeBaseInput'; 
-
-// Mock data for development
-const MOCK_PROCESSES = [
-  {
-    id: "process1",
-    name: "Customer Onboarding",
-    description: "Process for onboarding new customers",
-    formSchemaId: "form1"
-  },
-  {
-    id: "financial_charge_dispute",
-    name: "Financial Charge Dispute",
-    description: "Process for disputing financial charges",
-    formSchemaId: "financial_charge_dispute_form"
-  }
-];
-
-const MOCK_FORM_SCHEMAS = [
-  {
-    id: "form1",
-    title: "Customer Information Form",
-    messages: {
-      welcome: "Welcome to the Customer Information Form. I'll guide you through the process."
-    },
-    form: {
-      sections: [
-        {
-          id: "personal_info",
-          title: "Personal Information",
-          description: "Please provide your personal details",
-          fields: [
-            {
-              id: "full_name",
-              label: "What is your full name?",
-              type: "text",
-              required: true,
-              integrationId: "customer.fullName"
-            },
-            {
-              id: "email",
-              label: "What is your email address?",
-              type: "email",
-              required: true,
-              integrationId: "customer.email"
-            },
-            {
-              id: "phone",
-              label: "What is your phone number?",
-              type: "tel",
-              required: true,
-              integrationId: "customer.phone"
-            }
-          ]
-        },
-        {
-          id: "address_info",
-          title: "Address Information",
-          description: "Please provide your address details",
-          fields: [
-            {
-              id: "street_address",
-              label: "What is your street address?",
-              type: "text",
-              required: true,
-              integrationId: "customer.address.street"
-            },
-            {
-              id: "city",
-              label: "What city do you live in?",
-              type: "text",
-              required: true,
-              integrationId: "customer.address.city"
-            },
-            {
-              id: "zip_code",
-              label: "What is your zip/postal code?",
-              type: "text",
-              required: true,
-              integrationId: "customer.address.zip"
-            }
-          ]
-        }
-      ]
-    }
-  },
-  {
-    id: "financial_charge_dispute_form",
-    title: "Financial Charge Dispute",
-    messages: {
-      welcome: "Welcome to the Financial Charge Dispute process. I'll help you file a dispute for unauthorized or incorrect charges."
-    },
-    form: {
-      sections: [
-        {
-          id: "dispute_info",
-          title: "Dispute Information",
-          description: "Please provide details about the disputed charge",
-          fields: [
-            {
-              id: "account_number",
-              label: "What is your account number?",
-              type: "text",
-              required: true,
-              integrationId: "dispute.accountNumber"
-            },
-            {
-              id: "transaction_date",
-              label: "When did the transaction occur?",
-              type: "date",
-              required: true,
-              integrationId: "dispute.transactionDate"
-            },
-            {
-              id: "transaction_amount",
-              label: "What was the transaction amount?",
-              type: "currency",
-              required: true,
-              integrationId: "dispute.transactionAmount"
-            },
-            {
-              id: "merchant_name",
-              label: "What is the merchant name?",
-              type: "text",
-              required: true,
-              integrationId: "dispute.merchantName"
-            }
-          ]
-        },
-        {
-          id: "dispute_reason",
-          title: "Dispute Reason",
-          description: "Please provide the reason for your dispute",
-          fields: [
-            {
-              id: "dispute_type",
-              label: "What type of dispute is this?",
-              type: "select",
-              required: true,
-              integrationId: "dispute.type",
-              options: [
-                { value: "unauthorized", label: "Unauthorized charge" },
-                { value: "incorrect_amount", label: "Incorrect amount charged" },
-                { value: "product_not_received", label: "Product or service not received" },
-                { value: "defective_product", label: "Defective product or service" },
-                { value: "duplicate_charge", label: "Duplicate charge" },
-                { value: "other", label: "Other" }
-              ]
-            },
-            {
-              id: "dispute_description",
-              label: "Please describe the issue in detail",
-              type: "textarea",
-              required: true,
-              integrationId: "dispute.description"
-            },
-            {
-              id: "contacted_merchant",
-              label: "Have you contacted the merchant about this issue?",
-              type: "select",
-              required: true,
-              integrationId: "dispute.contactedMerchant",
-              options: [
-                { value: "yes", label: "Yes" },
-                { value: "no", label: "No" }
-              ]
-            }
-          ]
-        },
-        {
-          id: "supporting_documents",
-          title: "Supporting Documents",
-          description: "Please provide any supporting documents for your dispute",
-          fields: [
-            {
-              id: "has_receipt",
-              label: "Do you have a receipt or proof of purchase?",
-              type: "select",
-              required: true,
-              integrationId: "dispute.hasReceipt",
-              options: [
-                { value: "yes", label: "Yes" },
-                { value: "no", label: "No" }
-              ]
-            },
-            {
-              id: "has_correspondence",
-              label: "Do you have any correspondence with the merchant?",
-              type: "select",
-              required: true,
-              integrationId: "dispute.hasCorrespondence",
-              options: [
-                { value: "yes", label: "Yes" },
-                { value: "no", label: "No" }
-              ]
-            },
-            {
-              id: "additional_comments",
-              label: "Do you have any additional comments or information?",
-              type: "textarea",
-              required: false,
-              integrationId: "dispute.additionalComments"
-            }
-          ]
-        },
-        {
-          id: "confirmation",
-          title: "Confirmation",
-          description: "Please confirm your dispute submission",
-          fields: [
-            {
-              id: "confirm_accurate",
-              label: "I confirm that all information provided is accurate and complete",
-              type: "checkbox",
-              required: true,
-              integrationId: "dispute.confirmAccurate"
-            },
-            {
-              id: "signature",
-              label: "Please sign to authorize this dispute",
-              type: "signature",
-              required: true,
-              integrationId: "dispute.signature"
-            }
-          ]
-        }
-      ]
-    }
-  }
-];
-
-// Mock SDK functions
-const mockProcessFilter = async (query) => {
-  console.log("Mock Process.filter called with:", query);
-  if (query && query.id) {
-    const matchingProcesses = MOCK_PROCESSES.filter(p => p.id === query.id);
-    console.log("Matching processes:", matchingProcesses);
-    return matchingProcesses;
-  }
-  return MOCK_PROCESSES;
-};
-
-const mockFormSchemaFilter = async (query) => {
-  console.log("Mock FormSchema.filter called with:", query);
-  if (query && query.id) {
-    const matchingSchemas = MOCK_FORM_SCHEMAS.filter(f => f.id === query.id);
-    console.log("Matching form schemas:", matchingSchemas);
-    return matchingSchemas;
-  }
-  return MOCK_FORM_SCHEMAS;
-};
-
-const mockSessionCreate = async (sessionData) => {
-  console.log("Mock Session.create called with:", sessionData);
-  // Store in localStorage for persistence
-  localStorage.setItem(`mock_session_${sessionData.sessionId}`, JSON.stringify(sessionData));
-  return { id: sessionData.sessionId, ...sessionData };
-};
-
-const mockSessionUpdate = async (sessionId, updates) => {
-  console.log("Mock Session.update called with:", sessionId, updates);
-  const sessionStr = localStorage.getItem(`mock_session_${sessionId}`);
-  if (sessionStr) {
-    const session = JSON.parse(sessionStr);
-    const updatedSession = { ...session, ...updates };
-    localStorage.setItem(`mock_session_${sessionId}`, JSON.stringify(updatedSession));
-    return updatedSession;
-  }
-  return null;
-};
-
-const mockSessionFilter = async (query) => {
-  console.log("Mock Session.filter called with:", query);
-  if (query && query.sessionId) {
-    const sessionStr = localStorage.getItem(`mock_session_${query.sessionId}`);
-    if (sessionStr) {
-      return [JSON.parse(sessionStr)];
-    }
-  }
-  return [];
-};
-
-// Mock SDK entities
-const Process = {
-  filter: mockProcessFilter
-};
-
-const FormSchema = {
-  filter: mockFormSchemaFilter
-};
-
-const Session = {
-  create: mockSessionCreate,
-  update: mockSessionUpdate,
-  filter: mockSessionFilter
-};
+import { Process, FormSchema, Session } from '@/api/entities';
 
 export default function FormChat() {
   const [messages, setMessages] = useState([]);
@@ -391,26 +97,67 @@ export default function FormChat() {
     try {
       setLoading(true);
       console.log("Loading process with ID:", processId);
-      const processes = await Process.filter({ id: processId });
-      console.log("Process filter result:", processes);
+      
+      // First try to get the process directly by ID
+      let processes = [];
+      try {
+        processes = await Process.filter({ id: processId });
+        console.log("Process filter result:", processes);
+      } catch (error) {
+        console.error("Error in Process.filter:", error);
+        // Try to get all processes and filter manually
+        try {
+          const allProcesses = await Process.list();
+          console.log("All processes:", allProcesses);
+          processes = allProcesses.filter(p => p.id === processId);
+          console.log("Filtered processes:", processes);
+        } catch (listError) {
+          console.error("Error in Process.list:", listError);
+        }
+      }
       
       if (processes.length === 0) {
-        console.error("Process not found");
-        // Use the first mock process as fallback
-        const fallbackProcess = MOCK_PROCESSES[0];
-        setProcessName(fallbackProcess.name || "Form Process");
-        loadForm(fallbackProcess.formSchemaId);
+        console.error("Process not found, trying to get all processes");
+        try {
+          const allProcesses = await Process.list();
+          console.log("All available processes:", allProcesses);
+          
+          if (allProcesses.length > 0) {
+            // Use the first process as fallback
+            const fallbackProcess = allProcesses[0];
+            setProcessName(fallbackProcess.name || "Form Process");
+            console.log("Using fallback process:", fallbackProcess);
+            
+            if (fallbackProcess.formSchemaId || fallbackProcess.formAsset) {
+              const formId = fallbackProcess.formSchemaId || fallbackProcess.formAsset;
+              console.log("Loading form schema with ID:", formId);
+              loadForm(formId);
+            } else {
+              console.error("No form schema associated with fallback process");
+              setLoading(false);
+            }
+          } else {
+            console.error("No processes available");
+            setLoading(false);
+          }
+        } catch (error) {
+          console.error("Error getting all processes:", error);
+          setLoading(false);
+        }
         return;
       }
       
       const process = processes[0];
       setProcessName(process.name || "Form Process");
       
-      if (process.formSchemaId) {
-        console.log("Loading form schema with ID:", process.formSchemaId);
-        loadForm(process.formSchemaId);
+      // Check for formSchemaId or formAsset
+      const formId = process.formSchemaId || process.formAsset;
+      if (formId) {
+        console.log("Loading form schema with ID:", formId);
+        loadForm(formId);
       } else {
         console.error("No form schema associated with this process");
+        setLoading(false);
       }
       
       // Create a new session for this process
@@ -441,11 +188,6 @@ export default function FormChat() {
       
     } catch (error) {
       console.error("Error loading process:", error);
-      // Use the first mock process as fallback
-      const fallbackProcess = MOCK_PROCESSES[0];
-      setProcessName(fallbackProcess.name || "Form Process");
-      loadForm(fallbackProcess.formSchemaId);
-    } finally {
       setLoading(false);
     }
   };
@@ -454,13 +196,44 @@ export default function FormChat() {
     try {
       setLoading(true);
       console.log("Loading form schema with ID:", formId);
-      const formSchemas = await FormSchema.filter({ id: formId });
-      console.log("Form schema filter result:", formSchemas);
+      
+      // First try to get the form schema directly by ID
+      let formSchemas = [];
+      try {
+        formSchemas = await FormSchema.filter({ id: formId });
+        console.log("Form schema filter result:", formSchemas);
+      } catch (error) {
+        console.error("Error in FormSchema.filter:", error);
+        // Try to get all form schemas and filter manually
+        try {
+          const allFormSchemas = await FormSchema.list();
+          console.log("All form schemas:", allFormSchemas);
+          formSchemas = allFormSchemas.filter(f => f.id === formId);
+          console.log("Filtered form schemas:", formSchemas);
+        } catch (listError) {
+          console.error("Error in FormSchema.list:", listError);
+        }
+      }
       
       if (formSchemas.length === 0) {
-        console.error("Form schema not found");
-        // Use the first mock form schema as fallback
-        initializeForm(MOCK_FORM_SCHEMAS[0]);
+        console.error("Form schema not found, trying to get all form schemas");
+        try {
+          const allFormSchemas = await FormSchema.list();
+          console.log("All available form schemas:", allFormSchemas);
+          
+          if (allFormSchemas.length > 0) {
+            // Use the first form schema as fallback
+            const fallbackSchema = allFormSchemas[0];
+            console.log("Using fallback form schema:", fallbackSchema);
+            initializeForm(fallbackSchema);
+          } else {
+            console.error("No form schemas available");
+            setLoading(false);
+          }
+        } catch (error) {
+          console.error("Error getting all form schemas:", error);
+          setLoading(false);
+        }
         return;
       }
       
@@ -468,22 +241,21 @@ export default function FormChat() {
       initializeForm(schema);
     } catch (error) {
       console.error("Error loading form:", error);
-      // Use the first mock form schema as fallback
-      initializeForm(MOCK_FORM_SCHEMAS[0]);
-    } finally {
       setLoading(false);
     }
   };
 
   const loadDefaultForm = () => {
     // For demo purposes, load a default form
-    try {
-      console.log("Loading default form");
-      initializeForm(MOCK_FORM_SCHEMAS[0]);
-    } catch (error) {
-      console.error("Error loading default form:", error);
-      setLoading(false);
-    }
+    fetch('/defaultForm.json')
+      .then(response => response.json())
+      .then(schema => {
+        initializeForm(schema);
+      })
+      .catch(error => {
+        console.error("Error loading default form:", error);
+        setLoading(false);
+      });
   };
 
   const trackQuestion = async (question, answer) => {
