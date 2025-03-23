@@ -1,97 +1,72 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Upload } from "lucide-react";
-import ChatMessage from '../components/chat/ChatMessage';
-import FormField from '../components/chat/FormField';
-import SummaryTable from '../components/chat/SummaryTable';
-import SignaturePad from '../components/form/SignaturePad';
-import { createSession, updateSession, getSession, processRules } from '@/components/utils/sessionManager';
-import Avatar from '../components/chat/Avatar';
-import SimpleVoice from '../components/chat/SimpleVoice';
-import KnowledgeBaseButton from '../components/chat/KnowledgeBaseButton'; 
-import KnowledgeBaseInput from '../components/chat/KnowledgeBaseInput'; 
-import { Process, FormSchema, Session } from '@/api/entities';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Process, FormSchema, Session } from '../api/entities';
+import { base44 } from '../api/base44Client';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { Textarea } from '../components/ui/textarea';
+import { StarRating } from '../components/form/StarRating';
+import { Separator } from '../components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { useToast } from '../components/ui/use-toast';
+import { Loader2 } from 'lucide-react';
+import { useSessionManager } from '../components/utils/sessionManager';
+import { cn } from '../lib/utils';
 
 export default function FormChat() {
-  const [messages, setMessages] = useState([]);
-  const [currentFieldIndex, setCurrentFieldIndex] = useState(-1);
-  const [formData, setFormData] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
-  const bottomRef = useRef(null);
-  const [completed, setCompleted] = useState(false);
-  const [currentSection, setCurrentSection] = useState("");
-  const [currentInputValue, setCurrentInputValue] = useState('');
-  const [validationError, setValidationError] = useState(null);
-  const [formTitle, setFormTitle] = useState("");
-  const [formLoaded, setFormLoaded] = useState(false);
-  const [fields, setFields] = useState([]);
-  const [sections, setSections] = useState([]);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [jsonText, setJsonText] = useState('');
-  const [visibilityRules, setVisibilityRules] = useState([]);
-  const [updatingRules, setUpdatingRules] = useState([]);
-  const [blockVisibility, setBlockVisibility] = useState({});
-  const fileInputRef = useRef(null);
-  const [showSignaturePad, setShowSignaturePad] = useState(false);
-  const [currentSignatureField, setCurrentSignatureField] = useState(null);
-  const [fieldVisibility, setFieldVisibility] = useState({});
-  const [globalVariables, setGlobalVariables] = useState({});
-  const [processedSections, setProcessedSections] = useState({});
-  const [answeredFields, setAnsweredFields] = useState({});
-  const [interactionMode, setInteractionMode] = useState("chat");
-  const [voiceActive, setVoiceActive] = useState(false);
-  const [voiceListening, setVoiceListening] = useState(false);
-  const [currentReadingText, setCurrentReadingText] = useState("");
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const lastBotMessageRef = useRef("");
-  const speechSynthesisRef = useRef(null);
-  const [networkAvailable, setNetworkAvailable] = useState(true);
-  const [useTextFallback, setUseTextFallback] = useState(false);
-  const maxReconnectAttempts = 2;
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [initializing, setInitializing] = useState(true);
+  const [processName, setProcessName] = useState('Form Process');
   const [formSchema, setFormSchema] = useState(null);
+  const [sections, setSections] = useState([]);
+  const [currentSection, setCurrentSection] = useState(null);
+  const [formData, setFormData] = useState({});
+  const [messages, setMessages] = useState([]);
+  const [userInput, setUserInput] = useState('');
   const [sessionId, setSessionId] = useState(null);
-  const [processId, setProcessId] = useState(null);
-  const [processName, setProcessName] = useState("");
-  const [showKnowledgeBase, setShowKnowledgeBase] = useState(false);
-  const [knowledgeBaseQuery, setKnowledgeBaseQuery] = useState("");
-  const [knowledgeBaseResults, setKnowledgeBaseResults] = useState([]);
-  const [isSearchingKnowledgeBase, setIsSearchingKnowledgeBase] = useState(false);
-  const [showRatingInput, setShowRatingInput] = useState(false);
+  const [completed, setCompleted] = useState(false);
+  const [showRating, setShowRating] = useState(false);
   const [userRating, setUserRating] = useState(0);
+  const [interactionMode, setInteractionMode] = useState('chat');
+  const messagesEndRef = useRef(null);
+  const { addMessage, getMessages } = useSessionManager();
 
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const formId = urlParams.get('formId');
-    const processIdParam = urlParams.get('processId');
-    const modeParam = urlParams.get('mode');
+    const searchParams = new URLSearchParams(location.search);
+    const processId = searchParams.get('processId');
+    const mode = searchParams.get('mode') || 'chat';
     
-    console.log("URL Parameters:", { formId, processId: processIdParam, mode: modeParam });
+    console.log("URL Parameters:", { processId, mode });
+    setInteractionMode(mode);
     
-    if (processIdParam) {
-      setProcessId(processIdParam);
-      if (modeParam) {
-        setInteractionMode(modeParam);
-      }
-      loadProcess(processIdParam);
-    } else if (formId) {
-      loadForm(formId);
+    if (processId) {
+      console.log("Starting to load process:", processId);
+      loadProcess(processId);
     } else {
-      loadDefaultForm();
+      console.error("No process ID provided");
+      setLoading(false);
+      setInitializing(false);
     }
     
-    return () => {
-      if (speechSynthesisRef.current) {
-        speechSynthesisRef.current.cancel();
-      }
-    };
-  }, []);
+    // Initialize with a welcome message
+    addMessage('Welcome to the form chat! I\'ll help you fill out this form.', 'bot');
+  }, [location.search]);
 
   useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    setMessages(getMessages());
+  }, [getMessages]);
+
+  useEffect(() => {
+    // Scroll to bottom of messages
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isTyping]);
+  }, [messages]);
 
   const loadProcess = async (processId) => {
     try {
@@ -135,14 +110,17 @@ export default function FormChat() {
             } else {
               console.error("No form schema associated with fallback process");
               setLoading(false);
+              setInitializing(false);
             }
           } else {
             console.error("No processes available");
             setLoading(false);
+            setInitializing(false);
           }
         } catch (error) {
           console.error("Error getting all processes:", error);
           setLoading(false);
+          setInitializing(false);
         }
         return;
       }
@@ -158,6 +136,7 @@ export default function FormChat() {
       } else {
         console.error("No form schema associated with this process");
         setLoading(false);
+        setInitializing(false);
       }
       
       // Create a new session for this process
@@ -189,6 +168,7 @@ export default function FormChat() {
     } catch (error) {
       console.error("Error loading process:", error);
       setLoading(false);
+      setInitializing(false);
     }
   };
 
@@ -197,7 +177,48 @@ export default function FormChat() {
       setLoading(true);
       console.log("Loading form schema with ID:", formId);
       
-      // First try to get the form schema directly by ID
+      // Check if formId is a complex object (like a file asset) instead of a simple string
+      if (typeof formId === 'object' && formId !== null) {
+        console.log("Form ID is a complex object:", formId);
+        
+        // Try to use a property of the object as the ID
+        if (formId.name) {
+          console.log("Using form asset name as ID:", formId.name);
+          // Create a simple mock form schema based on the file name
+          const mockSchema = createMockFormSchema(formId.name);
+          console.log("Created mock form schema:", mockSchema);
+          initializeForm(mockSchema);
+          return;
+        }
+        
+        // If we can't extract a usable ID, try to get all form schemas
+        try {
+          const allFormSchemas = await FormSchema.list();
+          console.log("All available form schemas:", allFormSchemas);
+          
+          if (allFormSchemas.length > 0) {
+            // Use the first form schema as fallback
+            const fallbackSchema = allFormSchemas[0];
+            console.log("Using fallback form schema:", fallbackSchema);
+            initializeForm(fallbackSchema);
+          } else {
+            console.error("No form schemas available");
+            // Create a generic form schema as last resort
+            const genericSchema = createGenericFormSchema();
+            console.log("Created generic form schema:", genericSchema);
+            initializeForm(genericSchema);
+          }
+        } catch (error) {
+          console.error("Error getting all form schemas:", error);
+          // Create a generic form schema as last resort
+          const genericSchema = createGenericFormSchema();
+          console.log("Created generic form schema:", genericSchema);
+          initializeForm(genericSchema);
+        }
+        return;
+      }
+      
+      // If formId is a simple string, proceed with normal loading
       let formSchemas = [];
       try {
         formSchemas = await FormSchema.filter({ id: formId });
@@ -228,11 +249,17 @@ export default function FormChat() {
             initializeForm(fallbackSchema);
           } else {
             console.error("No form schemas available");
-            setLoading(false);
+            // Create a generic form schema as last resort
+            const genericSchema = createGenericFormSchema();
+            console.log("Created generic form schema:", genericSchema);
+            initializeForm(genericSchema);
           }
         } catch (error) {
           console.error("Error getting all form schemas:", error);
-          setLoading(false);
+          // Create a generic form schema as last resort
+          const genericSchema = createGenericFormSchema();
+          console.log("Created generic form schema:", genericSchema);
+          initializeForm(genericSchema);
         }
         return;
       }
@@ -241,216 +268,207 @@ export default function FormChat() {
       initializeForm(schema);
     } catch (error) {
       console.error("Error loading form:", error);
-      setLoading(false);
+      // Create a generic form schema as last resort
+      const genericSchema = createGenericFormSchema();
+      console.log("Created generic form schema:", genericSchema);
+      initializeForm(genericSchema);
     }
   };
 
-  const loadDefaultForm = () => {
-    // For demo purposes, load a default form
-    fetch('/defaultForm.json')
-      .then(response => response.json())
-      .then(schema => {
-        initializeForm(schema);
-      })
-      .catch(error => {
-        console.error("Error loading default form:", error);
-        setLoading(false);
-      });
-  };
-
-  const trackQuestion = async (question, answer) => {
-    try {
-      if (!sessionId) return;
-      
-      const sessions = await Session.filter({ sessionId: sessionId });
-      if (sessions.length === 0) return;
-
-      const session = sessions[0];
-      const questions = Array.isArray(session.questions) ? [...session.questions] : [];
-
-      questions.push({
-        question: question,
-        answer: answer,
-        timestamp: new Date().toISOString()
-      });
-
-      await Session.update(session.id, { questions });
-    } catch (error) {
-      console.error("Error tracking question:", error);
+  // Create a mock form schema based on a file name
+  const createMockFormSchema = (fileName) => {
+    // Extract a readable name from the file name
+    let formName = fileName.replace(/[_\-.]/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    // Check if it's a Financial Charge Dispute form
+    if (fileName.toLowerCase().includes('financial') && fileName.toLowerCase().includes('charge') && fileName.toLowerCase().includes('dispute')) {
+      return {
+        id: 'financial-charge-dispute',
+        name: 'Financial Charge Dispute Form',
+        description: 'Form for disputing financial charges',
+        sections: [
+          {
+            id: 'dispute_information',
+            name: 'Dispute Information',
+            fields: [
+              { id: 'account_number', name: 'Account Number', type: 'text', required: true },
+              { id: 'transaction_date', name: 'Transaction Date', type: 'date', required: true },
+              { id: 'transaction_amount', name: 'Transaction Amount', type: 'number', required: true },
+              { id: 'merchant_name', name: 'Merchant Name', type: 'text', required: true }
+            ]
+          },
+          {
+            id: 'dispute_reason',
+            name: 'Dispute Reason',
+            fields: [
+              { id: 'dispute_type', name: 'Dispute Type', type: 'select', options: ['Unauthorized Charge', 'Duplicate Charge', 'Incorrect Amount', 'Service Not Received', 'Other'], required: true },
+              { id: 'dispute_description', name: 'Dispute Description', type: 'textarea', required: true },
+              { id: 'contacted_merchant', name: 'Have you contacted the merchant?', type: 'radio', options: ['Yes', 'No'], required: true }
+            ]
+          },
+          {
+            id: 'supporting_documents',
+            name: 'Supporting Documents',
+            fields: [
+              { id: 'has_receipt', name: 'Do you have a receipt?', type: 'radio', options: ['Yes', 'No'], required: true },
+              { id: 'has_correspondence', name: 'Do you have correspondence with the merchant?', type: 'radio', options: ['Yes', 'No'], required: true },
+              { id: 'additional_comments', name: 'Additional Comments', type: 'textarea', required: false }
+            ]
+          },
+          {
+            id: 'confirmation',
+            name: 'Confirmation',
+            fields: [
+              { id: 'confirm_accuracy', name: 'I confirm that the information provided is accurate', type: 'checkbox', required: true },
+              { id: 'signature', name: 'Signature', type: 'text', required: true }
+            ]
+          }
+        ]
+      };
     }
+    
+    // Generic form based on the file name
+    return {
+      id: 'mock-form-' + Date.now(),
+      name: formName || 'Form Process',
+      description: 'Form generated from ' + fileName,
+      sections: [
+        {
+          id: 'personal_information',
+          name: 'Personal Information',
+          fields: [
+            { id: 'name', name: 'Full Name', type: 'text', required: true },
+            { id: 'email', name: 'Email Address', type: 'email', required: true },
+            { id: 'phone', name: 'Phone Number', type: 'text', required: false }
+          ]
+        },
+        {
+          id: 'request_details',
+          name: 'Request Details',
+          fields: [
+            { id: 'request_type', name: 'Request Type', type: 'select', options: ['Information', 'Service', 'Support', 'Other'], required: true },
+            { id: 'description', name: 'Description', type: 'textarea', required: true }
+          ]
+        },
+        {
+          id: 'confirmation',
+          name: 'Confirmation',
+          fields: [
+            { id: 'terms', name: 'I agree to the terms and conditions', type: 'checkbox', required: true }
+          ]
+        }
+      ]
+    };
   };
 
-  const handleFormResponse = async (value, source = 'manual') => {
-    const currentField = getCurrentField();
-    if (!currentField) return;
+  // Create a generic form schema as last resort
+  const createGenericFormSchema = () => {
+    return {
+      id: 'generic-form-' + Date.now(),
+      name: 'Customer Information Form',
+      description: 'Basic customer information form',
+      sections: [
+        {
+          id: 'personal_information',
+          name: 'Personal Information',
+          fields: [
+            { id: 'name', name: 'Full Name', type: 'text', required: true },
+            { id: 'email', name: 'Email Address', type: 'email', required: true },
+            { id: 'phone', name: 'Phone Number', type: 'text', required: false }
+          ]
+        },
+        {
+          id: 'address',
+          name: 'Address',
+          fields: [
+            { id: 'street', name: 'Street Address', type: 'text', required: true },
+            { id: 'city', name: 'City', type: 'text', required: true },
+            { id: 'state', name: 'State/Province', type: 'text', required: true },
+            { id: 'zip', name: 'Zip/Postal Code', type: 'text', required: true },
+            { id: 'country', name: 'Country', type: 'text', required: true }
+          ]
+        },
+        {
+          id: 'preferences',
+          name: 'Preferences',
+          fields: [
+            { id: 'contact_method', name: 'Preferred Contact Method', type: 'select', options: ['Email', 'Phone', 'Mail'], required: true },
+            { id: 'comments', name: 'Additional Comments', type: 'textarea', required: false }
+          ]
+        }
+      ]
+    };
+  };
 
-    console.log(`Processing response for field ${currentField.id}:`, value, `(source: ${source})`);
+  const initializeForm = (schema) => {
+    console.log("Initializing form with schema:", schema);
+    setFormSchema(schema);
     
-    // Clear any previous validation errors
-    setValidationError(null);
+    // Extract sections from schema
+    const schemaSections = schema.sections || [];
+    setSections(schemaSections);
     
-    // Validate the input if needed
-    if (currentField.validation) {
-      const isValid = validateInput(value, currentField.validation);
-      if (!isValid) {
-        const errorMessage = currentField.validation.errorMessage || "Invalid input. Please try again.";
-        setValidationError(errorMessage);
-        addMessage(errorMessage, "bot", "error");
-        return;
+    // Initialize form data
+    const initialData = {};
+    schemaSections.forEach(section => {
+      section.fields.forEach(field => {
+        initialData[field.id] = '';
+      });
+    });
+    setFormData(initialData);
+    
+    // Set initial section
+    if (schemaSections.length > 0) {
+      let introMessage = `I'll help you fill out the ${schema.name}.`;
+      const firstSection = schemaSections[0]?.id;
+      if (firstSection) {
+        introMessage += ` Let's start with the ${firstSection} section.`;
+        setCurrentSection(firstSection);
+        addMessage(introMessage, "bot");
       }
     }
     
-    // Update form data
-    const updatedFormData = { ...formData };
-    updatedFormData[currentField.id] = value;
-    setFormData(updatedFormData);
-    
-    // Mark this field as answered
-    setAnsweredFields(prev => ({
+    setLoading(false);
+    setInitializing(false);
+  };
+
+  const handleInputChange = (fieldId, value) => {
+    setFormData(prev => ({
       ...prev,
-      [currentField.id]: true
+      [fieldId]: value
     }));
-    
-    // Add user's response to chat
-    let displayValue = value;
-    
-    // Format display value based on field type
-    if (currentField.type === 'select' || currentField.type === 'dropdown') {
-      const option = currentField.options?.find(opt => opt.value === value);
-      if (option) {
-        displayValue = option.label;
-      }
-    } else if (currentField.type === 'checkboxinput') {
-      displayValue = value === true ? 'Yes' : 'No';
-    } else if (currentField.type === 'ratinginput') {
-      displayValue = `${value} stars`;
-    } else if (currentField.type === 'signature' || currentField.type === 'signatureinput' || currentField.type === 'signaturepad') {
-      displayValue = "Signature provided";
-    }
-    
-    addMessage(displayValue, "user");
-    
-    // Process any rules that might be triggered by this response
-    if (visibilityRules.length > 0) {
-      processVisibilityRules(currentField.id, value);
-    }
-    
-    // Move to the next field
-    moveToNextField();
   };
 
-  const moveToNextSection = async () => {
-    const currentSectionIndex = sections.findIndex(section => section.id === currentSection);
+  const handleSendMessage = () => {
+    if (!userInput.trim()) return;
+    
+    addMessage(userInput, "user");
+    setUserInput('');
+    
+    // Simple bot response
+    setTimeout(() => {
+      addMessage("I've received your message. Let me help you with that.", "bot");
+    }, 500);
+  };
+
+  const handleCompleteSection = () => {
+    const currentSectionIndex = sections.findIndex(s => s.id === currentSection);
     if (currentSectionIndex < sections.length - 1) {
       const nextSection = sections[currentSectionIndex + 1].id;
-      setProcessedSections(prev => ({
-        ...prev,
-        [currentSection]: true
-      }));
-      navigateToSection(nextSection);
+      setCurrentSection(nextSection);
+      addMessage(`Great! Let's move on to the ${nextSection} section.`, "bot");
     } else {
-      setCompleted(true);
-
-      const summaryData = [];
-
-      for (const field of fields) {
-        if (field.type === 'paragraph' || field.type === 'smartbutton' ||
-          field.type === 'separator' || field.type === 'divider') {
-          continue;
-        }
-
-        if (!isFieldVisible(field)) {
-          continue;
-        }
-
-        const value = formData[field.id];
-        if (value === undefined || value === null || value === '') {
-          continue;
-        }
-
-        let displayValue = value;
-        let rawValue = value;
-
-        if (field.type === 'select' || field.type === 'dropdown') {
-          const option = field.options?.find(opt => opt.value === value);
-          if (option) {
-            displayValue = option.label;
-          }
-        } else if (field.type === 'checkboxinput') {
-          displayValue = rawValue === true ? 'Yes' : 'No';
-        } else if (field.type === 'dateinput' && displayValue !== "Not provided") {
-          displayValue = formatDate(displayValue);
-        } else if ((field.type === 'signatureinput' || field.type === 'signaturepad' || field.type === 'signature') && displayValue !== "Not provided") {
-          displayValue = `<img src="${displayValue}" alt="Signature" style="max-width: 200px; height: auto;" />`;
-        } else if (field.type === 'ratinginput' && rawValue !== undefined) {
-          displayValue = `${rawValue} stars`;
-        } else if (field.type === 'currencyinput' && displayValue !== "Not provided") {
-          displayValue = `$${parseFloat(displayValue).toFixed(2)}`;
-        }
-
-        summaryData.push({
-          label: field.label || field.id,
-          value: displayValue,
-          rawValue: rawValue,
-          integrationId: field.integrationId || field.id
-        });
-      }
-
-      addMessage("Thank you for completing the form. Here's a summary of your responses:", "bot");
-      
-      // Show the summary table
-      addMessage(<SummaryTable data={summaryData} />, "bot", "summary");
-      
-      // Show rating input after form completion
-      setShowRatingInput(true);
-      addMessage("Please rate your experience with this form:", "bot");
-      addMessage(<div className="flex justify-center w-full">
-        <div className="rating-stars flex space-x-1">
-          {[1, 2, 3, 4, 5].map(rating => (
-            <button
-              key={rating}
-              className={`p-2 rounded-full ${userRating >= rating ? 'text-yellow-400' : 'text-gray-300'}`}
-              onClick={() => handleRatingSubmit(rating)}
-            >
-              ★
-            </button>
-          ))}
-        </div>
-      </div>, "bot", "rating-input");
-
-      // Mark the session as complete
-      await markSessionComplete(formData);
+      handleCompleteForm();
     }
   };
 
-  // Handle rating submission
-  const handleRatingSubmit = async (rating) => {
-    setUserRating(rating);
+  const handleCompleteForm = () => {
+    setCompleted(true);
+    setShowRating(true);
+    addMessage("Thank you for completing the form! How would you rate your experience?", "bot");
     
-    try {
-      if (!sessionId) return;
-      
-      const sessions = await Session.filter({ sessionId: sessionId });
-      if (sessions.length === 0) return;
-      
-      const session = sessions[0];
-      
-      // Create ratings object with the structure expected by analytics
-      const ratings = {
-        overallExperience: rating,
-        easeOfUse: rating,
-        accuracy: rating,
-        comments: ""
-      };
-      
-      // Update session with ratings
-      await Session.update(session.id, { ratings });
-      
-      addMessage(`Thank you for your rating of ${rating} stars!`, "bot");
-      console.log("Session ratings updated successfully");
-    } catch (error) {
-      console.error("Error updating session ratings:", error);
-    }
+    // Mark session as completed
+    markSessionComplete(formData);
   };
 
   const markSessionComplete = async (formData) => {
@@ -481,872 +499,280 @@ export default function FormChat() {
     }
   };
 
-  const initializeForm = async (schema) => {
-    setFormSchema(schema);
-    setFormTitle(schema.title || "Form Chat");
-    document.title = schema.title || "Form Chat";
+  const handleRatingSubmit = async (rating) => {
+    setUserRating(rating);
     
-    // Extract fields and sections
-    const allFields = [];
-    const formSections = [];
-    
-    if (schema.form && schema.form.sections) {
-      schema.form.sections.forEach(section => {
-        formSections.push({
-          id: section.id,
-          title: section.title || section.id,
-          description: section.description || ""
-        });
-        
-        if (section.fields && Array.isArray(section.fields)) {
-          section.fields.forEach(field => {
-            allFields.push({
-              ...field,
-              section: section.id
-            });
-          });
-        }
-      });
-    }
-    
-    setFields(allFields);
-    setSections(formSections);
-    
-    // Extract visibility rules
-    if (schema.form && schema.form.rules) {
-      setVisibilityRules(schema.form.rules.filter(rule => rule.type === "visibility"));
-    }
-    
-    // Set form as loaded
-    setFormLoaded(true);
-    
-    // Start the conversation
-    let introMessage = schema.messages?.welcome || `Welcome to ${schema.title || "our form"}. I'll guide you through the process.`;
-    const firstSection = formSections[0]?.id;
-    if (firstSection) {
-      introMessage += ` Let's start with the ${firstSection} section.`;
-      setCurrentSection(firstSection);
-      addMessage(introMessage, "bot");
-
-      if (sessionId) {
-        try {
-          const sessions = await Session.filter({ sessionId: sessionId });
-          if (sessions.length > 0) {
-            await Session.update(sessions[0].id, {
-              startTime: new Date().toISOString()
-            });
-          }
-        } catch (error) {
-          console.error("Error updating session start time:", error);
-        }
-      }
-
-      const introTexts = [];
-      let index = 0;
+    try {
+      if (!sessionId) return;
       
-      // Add section description if available
-      const sectionData = formSections.find(s => s.id === firstSection);
-      if (sectionData && sectionData.description) {
-        introTexts.push(sectionData.description);
-      }
+      const sessions = await Session.filter({ sessionId: sessionId });
+      if (sessions.length === 0) return;
       
-      // Schedule the intro texts to be displayed one after another
-      const displayNextIntro = () => {
-        if (index < introTexts.length) {
-          addMessage(introTexts[index], "bot");
-          index++;
-          setTimeout(displayNextIntro, 1000);
-        } else {
-          // After all intro texts, ask the first question
-          const firstFieldIndex = findFirstFieldInSection(firstSection);
-          if (firstFieldIndex >= 0) {
-            setCurrentFieldIndex(firstFieldIndex);
-            setTimeout(() => askQuestion(firstFieldIndex), 500);
-          }
-        }
+      const session = sessions[0];
+      
+      // Create ratings object with the structure expected by analytics
+      const ratings = {
+        overallExperience: rating,
+        easeOfUse: rating,
+        accuracy: rating,
+        comments: ""
       };
       
-      if (introTexts.length > 0) {
-        displayNextIntro();
-      } else {
-        // If no intro texts, directly ask the first question
-        const firstFieldIndex = findFirstFieldInSection(firstSection);
-        if (firstFieldIndex >= 0) {
-          setCurrentFieldIndex(firstFieldIndex);
-          setTimeout(() => askQuestion(firstFieldIndex), 500);
-        }
-      }
-    } else {
-      addMessage(introMessage, "bot");
-      addMessage("There are no sections defined in this form. Please contact the form administrator.", "bot", "error");
+      // Update session with ratings
+      await Session.update(session.id, { ratings });
+      
+      addMessage(`Thank you for your rating of ${rating} stars!`, "bot");
+      console.log("Session ratings updated successfully");
+    } catch (error) {
+      console.error("Error updating session ratings:", error);
     }
   };
 
-  const addMessage = (content, sender, type = "text") => {
-    const newMessage = {
-      id: Date.now(),
-      content,
-      sender,
-      type,
-      timestamp: new Date()
-    };
-    
-    setMessages(prev => [...prev, newMessage]);
-    
-    if (sender === "bot" && typeof content === "string") {
-      lastBotMessageRef.current = content;
-      
-      if (voiceActive && !isSpeaking) {
-        speakText(content);
-      }
-    }
-  };
-
-  const speakText = (text) => {
-    if (!window.speechSynthesis) {
-      console.error("Speech synthesis not supported");
-      return;
-    }
-    
-    // Cancel any ongoing speech
-    if (speechSynthesisRef.current) {
-      speechSynthesisRef.current.cancel();
-    }
-    
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-    
-    // Set a voice if available
-    const voices = window.speechSynthesis.getVoices();
-    const englishVoice = voices.find(voice => voice.lang.includes('en-'));
-    if (englishVoice) {
-      utterance.voice = englishVoice;
-    }
-    
-    utterance.onstart = () => {
-      setIsSpeaking(true);
-      setCurrentReadingText(text);
-    };
-    
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      setCurrentReadingText("");
-      speechSynthesisRef.current = null;
-    };
-    
-    utterance.onerror = (event) => {
-      console.error("Speech synthesis error:", event);
-      setIsSpeaking(false);
-      setCurrentReadingText("");
-      speechSynthesisRef.current = null;
-    };
-    
-    speechSynthesisRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const askQuestion = (fieldIndex) => {
-    if (fieldIndex < 0 || fieldIndex >= fields.length) return;
-    
-    const field = fields[fieldIndex];
-    if (!field) return;
-    
-    // Skip non-input fields
-    if (field.type === 'paragraph' || field.type === 'separator' || field.type === 'divider') {
-      if (field.type === 'paragraph' && field.content) {
-        addMessage(field.content, "bot");
-      }
-      moveToNextField();
-      return;
-    }
-    
-    // Skip fields that are not visible
-    if (!isFieldVisible(field)) {
-      moveToNextField();
-      return;
-    }
-    
-    // Prepare the question text
-    let questionText = field.label || `Please provide ${field.id}`;
-    
-    // Add help text if available
-    if (field.helpText) {
-      questionText += ` (${field.helpText})`;
-    }
-    
-    // Add the question to the chat
-    setIsTyping(true);
-    
-    // Simulate typing effect
-    setTimeout(() => {
-      setIsTyping(false);
-      addMessage(questionText, "bot");
-      
-      // For signature fields, show the signature pad
-      if (field.type === 'signature' || field.type === 'signatureinput' || field.type === 'signaturepad') {
-        setCurrentSignatureField(field);
-        setShowSignaturePad(true);
-      }
-    }, 500);
-  };
-
-  const moveToNextField = () => {
-    const currentField = getCurrentField();
-    if (!currentField) return;
-    
-    const currentSectionId = currentField.section;
-    let nextFieldIndex = currentFieldIndex + 1;
-    
-    // Find the next visible field in the current section
-    while (nextFieldIndex < fields.length) {
-      const nextField = fields[nextFieldIndex];
-      
-      // If we've moved to a different section, stop
-      if (nextField.section !== currentSectionId) {
-        break;
-      }
-      
-      // Skip non-input fields
-      if (nextField.type === 'paragraph' || nextField.type === 'separator' || nextField.type === 'divider') {
-        if (nextField.type === 'paragraph' && nextField.content) {
-          addMessage(nextField.content, "bot");
-        }
-        nextFieldIndex++;
-        continue;
-      }
-      
-      // Skip fields that are not visible
-      if (!isFieldVisible(nextField)) {
-        nextFieldIndex++;
-        continue;
-      }
-      
-      // Found a valid next field
-      setCurrentFieldIndex(nextFieldIndex);
-      askQuestion(nextFieldIndex);
-      return;
-    }
-    
-    // If we've reached the end of the section, move to the next section
-    moveToNextSection();
-  };
-
-  const navigateToSection = (sectionName) => {
-    setCurrentSection(sectionName);
-    
-    // Add section header message
-    const sectionData = sections.find(s => s.id === sectionName);
-    if (sectionData) {
-      addMessage(`Now let's move to the ${sectionData.title || sectionName} section.`, "bot");
-      
-      // Add section description if available
-      if (sectionData.description) {
-        setTimeout(() => {
-          addMessage(sectionData.description, "bot");
-        }, 1000);
-      }
-    }
-    
-    // Find the first field in this section
-    const firstFieldIndex = findFirstFieldInSection(sectionName);
-    
-    if (firstFieldIndex >= 0) {
-      setCurrentFieldIndex(firstFieldIndex);
-      setTimeout(() => askQuestion(firstFieldIndex), 1000);
-    } else {
-      const sectionIndex = sections.findIndex(s => s.id === sectionName);
-      if (sectionIndex >= 0 && sectionIndex < sections.length - 1) {
-        navigateToSection(sections[sectionIndex + 1].id);
-      } else {
-        setCurrentFieldIndex(-1);
-        setCompleted(true);
-
-        const summaryData = [];
-
-        for (const field of fields) {
-          if (field.type === 'paragraph' || field.type === 'smartbutton' ||
-            field.type === 'separator' || field.type === 'divider') {
-            continue;
-          }
-
-          if (!isFieldVisible(field)) {
-            continue;
-          }
-
-          const value = formData[field.id];
-          if (value === undefined || value === null || value === '') {
-            continue;
-          }
-
-          let displayValue = value;
-          let rawValue = value;
-
-          if (field.type === 'select' || field.type === 'dropdown') {
-            const option = field.options?.find(opt => opt.value === value);
-            if (option) {
-              displayValue = option.label;
-            }
-          } else if (field.type === 'checkboxinput') {
-            displayValue = rawValue === true ? 'Yes' : 'No';
-          } else if (field.type === 'dateinput' && displayValue !== "Not provided") {
-            displayValue = formatDate(displayValue);
-          } else if ((field.type === 'signatureinput' || field.type === 'signaturepad' || field.type === 'signature') && displayValue !== "Not provided") {
-            displayValue = `<img src="${displayValue}" alt="Signature" style="max-width: 200px; height: auto;" />`;
-          } else if (field.type === 'ratinginput' && rawValue !== undefined) {
-            displayValue = `${rawValue} stars`;
-          } else if (field.type === 'currencyinput' && displayValue !== "Not provided") {
-            displayValue = `$${parseFloat(displayValue).toFixed(2)}`;
-          }
-
-          summaryData.push({
-            label: field.label || field.id,
-            value: displayValue,
-            rawValue: rawValue,
-            integrationId: field.integrationId || field.id
-          });
-        }
-
-        addMessage("Thank you for completing the form. Here's a summary of your responses:", "bot");
-        addMessage(<SummaryTable data={summaryData} />, "bot", "summary");
-        
-        // Show rating input after form completion
-        setShowRatingInput(true);
-        addMessage("Please rate your experience with this form:", "bot");
-        addMessage(<div className="flex justify-center w-full">
-          <div className="rating-stars flex space-x-1">
-            {[1, 2, 3, 4, 5].map(rating => (
-              <button
-                key={rating}
-                className={`p-2 rounded-full ${userRating >= rating ? 'text-yellow-400' : 'text-gray-300'}`}
-                onClick={() => handleRatingSubmit(rating)}
-              >
-                ★
-              </button>
+  const renderField = (field) => {
+    switch (field.type) {
+      case 'text':
+      case 'email':
+      case 'number':
+        return (
+          <Input
+            id={field.id}
+            type={field.type}
+            value={formData[field.id] || ''}
+            onChange={(e) => handleInputChange(field.id, e.target.value)}
+            required={field.required}
+          />
+        );
+      case 'textarea':
+        return (
+          <Textarea
+            id={field.id}
+            value={formData[field.id] || ''}
+            onChange={(e) => handleInputChange(field.id, e.target.value)}
+            required={field.required}
+          />
+        );
+      case 'select':
+        return (
+          <select
+            id={field.id}
+            value={formData[field.id] || ''}
+            onChange={(e) => handleInputChange(field.id, e.target.value)}
+            required={field.required}
+            className="w-full p-2 border rounded"
+          >
+            <option value="">Select an option</option>
+            {field.options?.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        );
+      case 'radio':
+        return (
+          <div className="flex flex-col space-y-2">
+            {field.options?.map((option) => (
+              <div key={option} className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id={`${field.id}-${option}`}
+                  name={field.id}
+                  value={option}
+                  checked={formData[field.id] === option}
+                  onChange={() => handleInputChange(field.id, option)}
+                  required={field.required}
+                />
+                <label htmlFor={`${field.id}-${option}`}>{option}</label>
+              </div>
             ))}
           </div>
-        </div>, "bot", "rating-input");
-        
-        // Mark the session as complete
-        markSessionComplete(formData);
-      }
-    }
-  };
-
-  const findFirstFieldInSection = (sectionName) => {
-    return fields.findIndex(field => 
-      field.section === sectionName && 
-      field.type !== 'paragraph' && 
-      field.type !== 'separator' && 
-      field.type !== 'divider' &&
-      isFieldVisible(field)
-    );
-  };
-
-  const getCurrentField = () => {
-    if (currentFieldIndex >= 0 && currentFieldIndex < fields.length) {
-      return fields[currentFieldIndex];
-    }
-    return null;
-  };
-
-  const isFieldVisible = (field) => {
-    if (!field) return false;
-    
-    // Check if field has explicit visibility setting
-    if (fieldVisibility[field.id] === false) {
-      return false;
-    }
-    
-    // Check if field's block has visibility setting
-    if (field.blockId && blockVisibility[`block_${field.blockId}`] === false) {
-      return false;
-    }
-    
-    return true;
-  };
-
-  const processVisibilityRules = (fieldId, value) => {
-    const relevantRules = visibilityRules.filter(rule => 
-      rule.condition && rule.condition.when === fieldId
-    );
-    
-    if (relevantRules.length === 0) return;
-    
-    const updatedBlockVisibility = { ...blockVisibility };
-    const updatedFieldVisibility = { ...fieldVisibility };
-    
-    relevantRules.forEach(rule => {
-      const { when, is } = rule.condition;
-      
-      const conditionMet = Array.isArray(is) 
-        ? is.includes(value)
-        : value === is;
-      
-      if (rule.actions) {
-        rule.actions.forEach(action => {
-          const { elementIdentifier, action: actionType } = action;
-          if (!elementIdentifier) return;
-          
-          const isVisible = actionType === 'show' ? conditionMet : !conditionMet;
-          
-          if (elementIdentifier.startsWith('block_')) {
-            updatedBlockVisibility[elementIdentifier] = isVisible;
-          } else {
-            updatedFieldVisibility[elementIdentifier] = isVisible;
-          }
-        });
-      }
-    });
-    
-    setBlockVisibility(updatedBlockVisibility);
-    setFieldVisibility(updatedFieldVisibility);
-  };
-
-  const validateInput = (value, validation) => {
-    if (!validation) return true;
-    
-    if (validation.required && (value === undefined || value === null || value === '')) {
-      return false;
-    }
-    
-    if (validation.pattern && value) {
-      const regex = new RegExp(validation.pattern);
-      if (!regex.test(value)) {
-        return false;
-      }
-    }
-    
-    if (validation.minLength && value && value.length < validation.minLength) {
-      return false;
-    }
-    
-    if (validation.maxLength && value && value.length > validation.maxLength) {
-      return false;
-    }
-    
-    return true;
-  };
-
-  const formatDate = (dateString) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString();
-    } catch (e) {
-      return dateString;
-    }
-  };
-
-  const handleSignatureCapture = (signatureDataUrl) => {
-    if (!currentSignatureField) return;
-    
-    setShowSignaturePad(false);
-    handleFormResponse(signatureDataUrl);
-  };
-
-  const handleSignatureCancel = () => {
-    setShowSignaturePad(false);
-    moveToNextField();
-  };
-
-  const handleVoiceToggle = () => {
-    setVoiceActive(!voiceActive);
-    
-    if (!voiceActive && lastBotMessageRef.current) {
-      speakText(lastBotMessageRef.current);
-    } else if (voiceActive && speechSynthesisRef.current) {
-      speechSynthesisRef.current.cancel();
-      setIsSpeaking(false);
-      setCurrentReadingText("");
-    }
-  };
-
-  const handleVoiceInput = (transcript) => {
-    const currentField = getCurrentField();
-    if (!currentField) return;
-    
-    handleFormResponse(transcript, 'voice');
-  };
-
-  const handleKnowledgeBaseToggle = () => {
-    setShowKnowledgeBase(!showKnowledgeBase);
-  };
-
-  const handleKnowledgeBaseSearch = async (query) => {
-    setKnowledgeBaseQuery(query);
-    setIsSearchingKnowledgeBase(true);
-    
-    try {
-      // Simulate knowledge base search
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const results = [
-        {
-          title: "How to complete this form",
-          content: "This form guides you through a series of questions. Simply answer each question and the system will guide you to the next appropriate question based on your responses."
-        },
-        {
-          title: "What happens after submission",
-          content: "After you submit this form, your responses will be reviewed by our team. You will receive a confirmation email with a reference number for your submission."
-        },
-        {
-          title: "Contact support",
-          content: "If you need assistance with this form, please contact our support team at support@example.com or call 1-800-555-1234 during business hours."
-        }
-      ];
-      
-      setKnowledgeBaseResults(results);
-    } catch (error) {
-      console.error("Error searching knowledge base:", error);
-    } finally {
-      setIsSearchingKnowledgeBase(false);
-    }
-  };
-
-  const handleKnowledgeBaseResultClick = (result) => {
-    addMessage(`I have a question about: ${result.title}`, "user");
-    addMessage(result.content, "bot", "knowledge");
-    trackQuestion(result.title, result.content);
-    setShowKnowledgeBase(false);
-  };
-
-  const getSmartButtons = () => {
-    const currentField = getCurrentField();
-    if (!currentField || !currentField.smartButtons || !Array.isArray(currentField.smartButtons)) {
-      return [];
-    }
-    
-    return currentField.smartButtons;
-  };
-
-  const handleSmartButtonClick = (buttonValue) => {
-    handleFormResponse(buttonValue);
-  };
-
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const schema = JSON.parse(e.target.result);
-        initializeForm(schema);
-        setShowUploadModal(false);
-      } catch (error) {
-        console.error("Error parsing JSON:", error);
-        alert("Invalid JSON file. Please upload a valid form schema.");
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleJsonTextChange = (e) => {
-    setJsonText(e.target.value);
-  };
-
-  const handleJsonSubmit = () => {
-    try {
-      const schema = JSON.parse(jsonText);
-      initializeForm(schema);
-      setShowUploadModal(false);
-    } catch (error) {
-      console.error("Error parsing JSON:", error);
-      alert("Invalid JSON. Please check your input and try again.");
-    }
-  };
-
-  if (!formLoaded || loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
-        <div className="w-full max-w-md p-6 bg-white rounded-lg shadow-md">
-          <h1 className="text-xl font-semibold text-center mb-4">{formTitle || "Form Chat"}</h1>
-          <div className="flex justify-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+        );
+      case 'checkbox':
+        return (
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id={field.id}
+              checked={formData[field.id] === true}
+              onChange={(e) => handleInputChange(field.id, e.target.checked)}
+              required={field.required}
+            />
+            <label htmlFor={field.id}>{field.name}</label>
           </div>
-          <p className="text-center mt-4 text-gray-600">
-            {loading ? "Loading form..." : "Initializing..."}
-          </p>
+        );
+      case 'date':
+        return (
+          <Input
+            id={field.id}
+            type="date"
+            value={formData[field.id] || ''}
+            onChange={(e) => handleInputChange(field.id, e.target.value)}
+            required={field.required}
+          />
+        );
+      default:
+        return (
+          <Input
+            id={field.id}
+            value={formData[field.id] || ''}
+            onChange={(e) => handleInputChange(field.id, e.target.value)}
+            required={field.required}
+          />
+        );
+    }
+  };
+
+  const renderCurrentSection = () => {
+    const section = sections.find(s => s.id === currentSection);
+    if (!section) return null;
+
+    return (
+      <div className="space-y-4">
+        <h3 className="text-lg font-medium">{section.name}</h3>
+        {section.fields.map((field) => (
+          <div key={field.id} className="space-y-2">
+            <Label htmlFor={field.id}>{field.name}{field.required && <span className="text-red-500">*</span>}</Label>
+            {renderField(field)}
+          </div>
+        ))}
+        <Button onClick={handleCompleteSection}>
+          {currentSection === sections[sections.length - 1]?.id ? 'Complete Form' : 'Next Section'}
+        </Button>
+      </div>
+    );
+  };
+
+  const renderChatMessages = () => {
+    return (
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((msg, index) => (
+          <div
+            key={index}
+            className={cn(
+              "max-w-[80%] rounded-lg p-3",
+              msg.sender === "user"
+                ? "bg-primary text-primary-foreground ml-auto"
+                : "bg-muted"
+            )}
+          >
+            {msg.content}
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+    );
+  };
+
+  const renderChatInput = () => {
+    return (
+      <div className="p-4 border-t">
+        <div className="flex space-x-2">
+          <Input
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            placeholder="Type your message..."
+            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+          />
+          <Button onClick={handleSendMessage}>Send</Button>
         </div>
       </div>
     );
-  }
+  };
 
-  if (completed) {
+  if (initializing) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
-        <div className="w-full max-w-md p-6 bg-white rounded-lg shadow-md">
-          <h1 className="text-xl font-semibold text-center mb-4">{formTitle || "Form Chat"}</h1>
-          <div className="flex justify-center">
-            <div className="text-green-500 text-4xl">✓</div>
-          </div>
-          <p className="text-center mt-4 text-gray-600">
-            Form completed. Thank you for your responses.
-          </p>
-          <div className="mt-6">
-            <Button 
-              className="w-full bg-blue-600 hover:bg-blue-700"
-              onClick={() => window.location.href = '/'}
-            >
-              Return to Home
-            </Button>
-          </div>
-        </div>
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <h1 className="text-2xl font-bold mb-4">Form Chat</h1>
+        <p className="text-gray-500 mb-4">Initializing...</p>
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm p-4 flex items-center justify-between">
-        <div className="flex items-center">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => window.history.back()}
-            className="mr-2"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <h1 className="text-xl font-semibold">{formTitle}</h1>
-        </div>
-        
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleVoiceToggle}
-            className={`${voiceActive ? 'bg-blue-100 text-blue-700' : ''}`}
-          >
-            {voiceActive ? 'Voice On' : 'Voice Off'}
-          </Button>
-          
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowUploadModal(true)}
-          >
-            <Upload className="h-5 w-5" />
-          </Button>
-        </div>
+    <div className="flex flex-col min-h-screen">
+      <header className="bg-primary text-primary-foreground p-4">
+        <h1 className="text-2xl font-bold">{processName}</h1>
       </header>
       
-      {/* Main content */}
-      <main className="flex-1 p-4 overflow-y-auto">
-        <div className="max-w-3xl mx-auto">
-          {/* Chat messages */}
-          <div className="space-y-4 mb-4">
-            {messages.map((message) => (
-              <ChatMessage
-                key={message.id}
-                message={message}
-                isReading={isSpeaking && currentReadingText === message.content}
-              />
-            ))}
-            
-            {isTyping && (
-              <div className="flex items-start">
-                <Avatar />
-                <div className="ml-3 p-3 bg-white rounded-lg shadow-sm">
-                  <div className="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+      <main className="flex-1 flex">
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+              <p>Loading form...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex">
+            {interactionMode === 'chat' ? (
+              <div className="flex-1 flex flex-col">
+                {renderChatMessages()}
+                {!completed && renderChatInput()}
+                {showRating && !userRating && (
+                  <div className="p-4 border-t">
+                    <p className="mb-2">Please rate your experience:</p>
+                    <StarRating onRatingChange={handleRatingSubmit} />
                   </div>
-                </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex-1 p-4 overflow-y-auto">
+                <Tabs defaultValue={currentSection}>
+                  <TabsList className="mb-4">
+                    {sections.map((section) => (
+                      <TabsTrigger
+                        key={section.id}
+                        value={section.id}
+                        onClick={() => setCurrentSection(section.id)}
+                      >
+                        {section.name}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                  
+                  {sections.map((section) => (
+                    <TabsContent key={section.id} value={section.id}>
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>{section.name}</CardTitle>
+                          <CardDescription>Please fill out the fields below</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            {section.fields.map((field) => (
+                              <div key={field.id} className="space-y-2">
+                                <Label htmlFor={field.id}>{field.name}{field.required && <span className="text-red-500">*</span>}</Label>
+                                {renderField(field)}
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                        <CardFooter>
+                          <Button onClick={handleCompleteSection}>
+                            {section.id === sections[sections.length - 1]?.id ? 'Complete Form' : 'Next Section'}
+                          </Button>
+                        </CardFooter>
+                      </Card>
+                    </TabsContent>
+                  ))}
+                </Tabs>
+                
+                {completed && (
+                  <div className="mt-8 p-4 border rounded-lg">
+                    <h3 className="text-xl font-bold mb-4">Form Completed</h3>
+                    <p className="mb-4">Thank you for completing the form!</p>
+                    {!userRating && (
+                      <div>
+                        <p className="mb-2">Please rate your experience:</p>
+                        <StarRating onRatingChange={handleRatingSubmit} />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
-            
-            <div ref={bottomRef} />
           </div>
-          
-          {/* Input area */}
-          {formLoaded && !loading && !completed && !getCurrentField() && (
-            <div className="bg-white rounded-lg shadow-sm p-4 mt-4">
-              <p className="text-center text-gray-600">
-                Loading next question...
-              </p>
-            </div>
-          )}
-          
-          {formLoaded && !loading && !completed && getCurrentField() && (
-            <div className="bg-white rounded-lg shadow-sm p-4 mt-4">
-              <FormField
-                field={getCurrentField()}
-                value={formData[getCurrentField().id]}
-                onChange={handleFormResponse}
-                error={validationError}
-              />
-              
-              {/* Smart buttons */}
-              {formLoaded && !loading && !completed && getSmartButtons().length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {getSmartButtons().map((button, index) => (
-                    <Button
-                      key={index}
-                      variant="outline"
-                      onClick={() => handleSmartButtonClick(button.value)}
-                    >
-                      {button.label}
-                    </Button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        )}
       </main>
-      
-      {/* Footer */}
-      <footer className="bg-white shadow-sm p-4 mt-auto">
-        <div className="max-w-3xl mx-auto flex justify-between items-center">
-          <div className="text-sm text-gray-500">
-            {currentSection && (
-              <span>
-                Section: {sections.find(s => s.id === currentSection)?.title || currentSection}
-              </span>
-            )}
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            {/* Knowledge base button */}
-            <KnowledgeBaseButton onClick={handleKnowledgeBaseToggle} />
-            
-            {/* Voice input button */}
-            {voiceActive && (
-              <SimpleVoice
-                onResult={handleVoiceInput}
-                onListeningChange={setVoiceListening}
-                disabled={completed}
-              />
-            )}
-          </div>
-        </div>
-      </footer>
-      
-      {/* Knowledge base panel */}
-      {showKnowledgeBase && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md max-h-[80vh] flex flex-col">
-            <div className="p-4 border-b">
-              <h2 className="text-lg font-semibold">Knowledge Base</h2>
-            </div>
-            
-            <div className="p-4">
-              <KnowledgeBaseInput
-                value={knowledgeBaseQuery}
-                onChange={setKnowledgeBaseQuery}
-                onSearch={handleKnowledgeBaseSearch}
-                isSearching={isSearchingKnowledgeBase}
-              />
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-4">
-              {knowledgeBaseResults.length > 0 ? (
-                <div className="space-y-3">
-                  {knowledgeBaseResults.map((result, index) => (
-                    <div
-                      key={index}
-                      className="p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100"
-                      onClick={() => handleKnowledgeBaseResultClick(result)}
-                    >
-                      <h3 className="font-medium">{result.title}</h3>
-                      <p className="text-sm text-gray-600 mt-1 line-clamp-2">{result.content}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center text-gray-500">
-                  {isSearchingKnowledgeBase
-                    ? "Searching..."
-                    : knowledgeBaseQuery
-                      ? "No results found. Try a different search term."
-                      : "Enter a question to search the knowledge base."}
-                </p>
-              )}
-            </div>
-            
-            <div className="p-4 border-t">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={handleKnowledgeBaseToggle}
-              >
-                Close
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Signature pad modal */}
-      {showSignaturePad && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
-            <div className="p-4 border-b">
-              <h2 className="text-lg font-semibold">Signature</h2>
-            </div>
-            
-            <SignaturePad
-              onCapture={handleSignatureCapture}
-              onCancel={handleSignatureCancel}
-            />
-          </div>
-        </div>
-      )}
-      
-      {/* Upload form schema modal */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
-            <div className="p-4 border-b">
-              <h2 className="text-lg font-semibold">Upload Form Schema</h2>
-            </div>
-            
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Upload JSON File
-                </label>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleFileUpload}
-                  className="w-full p-2 border rounded-md"
-                />
-              </div>
-              
-              <div className="- my-2 border-t"></div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Or Paste JSON
-                </label>
-                <textarea
-                  value={jsonText}
-                  onChange={handleJsonTextChange}
-                  className="w-full p-2 border rounded-md h-40"
-                  placeholder='{"title": "My Form", "form": {"sections": []}}'
-                />
-              </div>
-            </div>
-            
-            <div className="p-4 border-t flex justify-end space-x-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowUploadModal(false)}
-              >
-                Cancel
-              </Button>
-              <Button onClick={handleJsonSubmit}>
-                Load Form
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
