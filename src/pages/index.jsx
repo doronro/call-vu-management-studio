@@ -60,13 +60,15 @@ export default function Home() {
         mode: currentTab
       });
 
-      // Try direct window.location.href navigation as a fallback
-      window.location.href = `/FormChat?${params.toString()}`;
+      // Use React Router's navigate function instead of direct window.location.href
+      navigate(`/FormChat?${params.toString()}`);
       
-      // The navigate function should work, but we're using window.location.href as a fallback
-      // navigate(`/FormChat?${params.toString()}`);
+      // Fallback to direct navigation only if navigate fails
+      // window.location.href = `/FormChat?${params.toString()}`;
     } catch (error) {
       console.error("Navigation error:", error);
+      // If React Router navigation fails, use direct navigation as fallback
+      window.location.href = `/FormChat?${params.toString()}`;
     }
   };
 
