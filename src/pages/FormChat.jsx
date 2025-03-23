@@ -1,8 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FormContext } from '@/api/entities';
-import { FormSchema } from '@/api/entities';
-import { Process } from '@/api/entities'; // Add Process import
-import { Session } from '@/api/entities';
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Upload } from "lucide-react";
 import ChatMessage from '../components/chat/ChatMessage';
@@ -15,22 +11,146 @@ import SimpleVoice from '../components/chat/SimpleVoice';
 import KnowledgeBaseButton from '../components/chat/KnowledgeBaseButton'; 
 import KnowledgeBaseInput from '../components/chat/KnowledgeBaseInput'; 
 
-const createLocalSession = (schema) => {
-  const sessionId = `form_${Date.now()}`;
-  const sessionData = {
-    sessionId,
-    schema,
-    formData: {},
-    blockVisibility: {},
-    fieldVisibility: {},
-  };
-  try {
-    localStorage.setItem(`form_session_${sessionId}`, JSON.stringify(sessionData));
-    return sessionId;
-  } catch (error) {
-    console.error("Error saving session:", error);
-    return null;
+// Mock data for development
+const MOCK_PROCESSES = [
+  {
+    id: "process1",
+    name: "Customer Onboarding",
+    description: "Process for onboarding new customers",
+    formSchemaId: "form1"
   }
+];
+
+const MOCK_FORM_SCHEMAS = [
+  {
+    id: "form1",
+    title: "Customer Information Form",
+    messages: {
+      welcome: "Welcome to the Customer Information Form. I'll guide you through the process."
+    },
+    form: {
+      sections: [
+        {
+          id: "personal_info",
+          title: "Personal Information",
+          description: "Please provide your personal details",
+          fields: [
+            {
+              id: "full_name",
+              label: "What is your full name?",
+              type: "text",
+              required: true,
+              integrationId: "customer.fullName"
+            },
+            {
+              id: "email",
+              label: "What is your email address?",
+              type: "email",
+              required: true,
+              integrationId: "customer.email"
+            },
+            {
+              id: "phone",
+              label: "What is your phone number?",
+              type: "tel",
+              required: true,
+              integrationId: "customer.phone"
+            }
+          ]
+        },
+        {
+          id: "address_info",
+          title: "Address Information",
+          description: "Please provide your address details",
+          fields: [
+            {
+              id: "street_address",
+              label: "What is your street address?",
+              type: "text",
+              required: true,
+              integrationId: "customer.address.street"
+            },
+            {
+              id: "city",
+              label: "What city do you live in?",
+              type: "text",
+              required: true,
+              integrationId: "customer.address.city"
+            },
+            {
+              id: "zip_code",
+              label: "What is your zip/postal code?",
+              type: "text",
+              required: true,
+              integrationId: "customer.address.zip"
+            }
+          ]
+        }
+      ]
+    }
+  }
+];
+
+// Mock SDK functions
+const mockProcessFilter = async (query) => {
+  console.log("Mock Process.filter called with:", query);
+  if (query && query.id) {
+    return MOCK_PROCESSES.filter(p => p.id === query.id);
+  }
+  return MOCK_PROCESSES;
+};
+
+const mockFormSchemaFilter = async (query) => {
+  console.log("Mock FormSchema.filter called with:", query);
+  if (query && query.id) {
+    return MOCK_FORM_SCHEMAS.filter(f => f.id === query.id);
+  }
+  return MOCK_FORM_SCHEMAS;
+};
+
+const mockSessionCreate = async (sessionData) => {
+  console.log("Mock Session.create called with:", sessionData);
+  // Store in localStorage for persistence
+  localStorage.setItem(`mock_session_${sessionData.sessionId}`, JSON.stringify(sessionData));
+  return { id: sessionData.sessionId, ...sessionData };
+};
+
+const mockSessionUpdate = async (sessionId, updates) => {
+  console.log("Mock Session.update called with:", sessionId, updates);
+  const sessionStr = localStorage.getItem(`mock_session_${sessionId}`);
+  if (sessionStr) {
+    const session = JSON.parse(sessionStr);
+    const updatedSession = { ...session, ...updates };
+    localStorage.setItem(`mock_session_${sessionId}`, JSON.stringify(updatedSession));
+    return updatedSession;
+  }
+  return null;
+};
+
+const mockSessionFilter = async (query) => {
+  console.log("Mock Session.filter called with:", query);
+  if (query && query.sessionId) {
+    const sessionStr = localStorage.getItem(`mock_session_${query.sessionId}`);
+    if (sessionStr) {
+      return [JSON.parse(sessionStr)];
+    }
+  }
+  return [];
+};
+
+// Mock SDK entities
+const Process = {
+  filter: mockProcessFilter
+};
+
+const FormSchema = {
+  filter: mockFormSchemaFilter
+};
+
+const Session = {
+  create: mockSessionCreate,
+  update: mockSessionUpdate,
+  filter: mockSessionFilter
 };
 
 export default function FormChat() {
@@ -123,6 +243,10 @@ export default function FormChat() {
       
       if (processes.length === 0) {
         console.error("Process not found");
+        // Use the first mock process as fallback
+        const fallbackProcess = MOCK_PROCESSES[0];
+        setProcessName(fallbackProcess.name || "Form Process");
+        loadForm(fallbackProcess.formSchemaId);
         return;
       }
       
@@ -164,6 +288,10 @@ export default function FormChat() {
       
     } catch (error) {
       console.error("Error loading process:", error);
+      // Use the first mock process as fallback
+      const fallbackProcess = MOCK_PROCESSES[0];
+      setProcessName(fallbackProcess.name || "Form Process");
+      loadForm(fallbackProcess.formSchemaId);
     } finally {
       setLoading(false);
     }
@@ -178,6 +306,8 @@ export default function FormChat() {
       
       if (formSchemas.length === 0) {
         console.error("Form schema not found");
+        // Use the first mock form schema as fallback
+        initializeForm(MOCK_FORM_SCHEMAS[0]);
         return;
       }
       
@@ -185,6 +315,8 @@ export default function FormChat() {
       initializeForm(schema);
     } catch (error) {
       console.error("Error loading form:", error);
+      // Use the first mock form schema as fallback
+      initializeForm(MOCK_FORM_SCHEMAS[0]);
     } finally {
       setLoading(false);
     }
@@ -192,15 +324,13 @@ export default function FormChat() {
 
   const loadDefaultForm = () => {
     // For demo purposes, load a default form
-    fetch('/defaultForm.json')
-      .then(response => response.json())
-      .then(schema => {
-        initializeForm(schema);
-      })
-      .catch(error => {
-        console.error("Error loading default form:", error);
-        setLoading(false);
-      });
+    try {
+      console.log("Loading default form");
+      initializeForm(MOCK_FORM_SCHEMAS[0]);
+    } catch (error) {
+      console.error("Error loading default form:", error);
+      setLoading(false);
+    }
   };
 
   const trackQuestion = async (question, answer) => {
@@ -467,7 +597,7 @@ export default function FormChat() {
     
     // Start the conversation
     let introMessage = schema.messages?.welcome || `Welcome to ${schema.title || "our form"}. I'll guide you through the process.`;
-    const firstSection = sections[0]?.id;
+    const firstSection = formSections[0]?.id;
     if (firstSection) {
       introMessage += ` Let's start with the ${firstSection} section.`;
       setCurrentSection(firstSection);
@@ -1002,7 +1132,7 @@ export default function FormChat() {
     }
   };
 
-  if (!formLoaded || loading || completed || !getCurrentField()) {
+  if (!formLoaded || loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
         <div className="w-full max-w-md p-6 bg-white rounded-lg shadow-md">
@@ -1011,8 +1141,32 @@ export default function FormChat() {
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
           </div>
           <p className="text-center mt-4 text-gray-600">
-            {loading ? "Loading form..." : completed ? "Form completed" : "Initializing..."}
+            {loading ? "Loading form..." : "Initializing..."}
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (completed) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+        <div className="w-full max-w-md p-6 bg-white rounded-lg shadow-md">
+          <h1 className="text-xl font-semibold text-center mb-4">{formTitle || "Form Chat"}</h1>
+          <div className="flex justify-center">
+            <div className="text-green-500 text-4xl">✓</div>
+          </div>
+          <p className="text-center mt-4 text-gray-600">
+            Form completed. Thank you for your responses.
+          </p>
+          <div className="mt-6">
+            <Button 
+              className="w-full bg-blue-600 hover:bg-blue-700"
+              onClick={() => window.location.href = '/'}
+            >
+              Return to Home
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -1115,14 +1269,6 @@ export default function FormChat() {
                   ))}
                 </div>
               )}
-            </div>
-          )}
-          
-          {completed && (
-            <div className="bg-white rounded-lg shadow-sm p-4 mt-4">
-              <p className="text-center text-gray-600">
-                Form completed. Thank you for your responses.
-              </p>
             </div>
           )}
         </div>
