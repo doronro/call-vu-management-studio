@@ -32,14 +32,14 @@ export default function FormChat() {
   const [completed, setCompleted] = useState(false);
   const [showRating, setShowRating] = useState(false);
   const [userRating, setUserRating] = useState(0);
-  const [interactionMode, setInteractionMode] = useState('chat');
+  const [interactionMode, setInteractionMode] = useState('form');
   const messagesEndRef = useRef(null);
   const { addMessage, getMessages } = useSessionManager();
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const processId = searchParams.get('processId');
-    const mode = searchParams.get('mode') || 'chat';
+    const mode = searchParams.get('mode') || 'form';
     
     console.log("URL Parameters:", { processId, mode });
     setInteractionMode(mode);

@@ -136,7 +136,7 @@ export default function ProcessRunner() {
                 Start a conversation-based form completion experience with text-based interaction.
               </p>
               <Button asChild className="bg-blue-600 hover:bg-blue-700">
-                <Link to={`${createPageUrl('FormChat')}?processId=${process?.id}&mode=chat`}>
+                <Link to={`${createPageUrl('FormChat')}?processId=${process?.id}&mode=form`}>
                   Start Chat
                 </Link>
               </Button>
@@ -154,7 +154,7 @@ export default function ProcessRunner() {
                 Complete the form using voice commands and speech recognition for a hands-free experience.
               </p>
               <Button asChild className="bg-blue-600 hover:bg-blue-700">
-                <Link to={`${createPageUrl('FormChat')}?processId=${process?.id}&mode=voice`}>
+                <Link to={`${createPageUrl('FormChat')}?processId=${process?.id}&mode=form&voice=true`}>
                   Start Voice Mode
                 </Link>
               </Button>
@@ -172,7 +172,7 @@ export default function ProcessRunner() {
                 Complete the form with an interactive avatar guiding you through the process.
               </p>
               <Button asChild className="bg-blue-600 hover:bg-blue-700">
-                <Link to={`${createPageUrl('FormChat')}?processId=${process?.id}&mode=avatar`}>
+                <Link to={`${createPageUrl('FormChat')}?processId=${process?.id}&mode=form&avatar=true`}>
                   Start Avatar Mode
                 </Link>
               </Button>
