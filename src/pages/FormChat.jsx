@@ -42,6 +42,7 @@ export default function FormChat() {
     const mode = searchParams.get('mode') || 'form';
     
     console.log("URL Parameters:", { processId, mode });
+    console.log("Setting interaction mode to:", mode);
     setInteractionMode(mode);
     
     if (processId) {
@@ -406,6 +407,7 @@ export default function FormChat() {
     
     // Extract sections from schema
     const schemaSections = schema.sections || [];
+    console.log("Schema sections:", schemaSections);
     setSections(schemaSections);
     
     // Initialize form data
@@ -421,13 +423,17 @@ export default function FormChat() {
     if (schemaSections.length > 0) {
       let introMessage = `I'll help you fill out the ${schema.name}.`;
       const firstSection = schemaSections[0]?.id;
+      console.log("Setting initial section to:", firstSection);
       if (firstSection) {
         introMessage += ` Let's start with the ${firstSection} section.`;
         setCurrentSection(firstSection);
         addMessage(introMessage, "bot");
       }
+    } else {
+      console.error("No sections found in schema");
     }
     
+    console.log("Current interaction mode:", interactionMode);
     setLoading(false);
     setInitializing(false);
   };
@@ -703,7 +709,8 @@ export default function FormChat() {
           </div>
         ) : (
           <div className="flex-1 flex">
-            {interactionMode === 'chat' ? (
+            {/* Force form mode regardless of interactionMode setting */}
+            {false ? (
               <div className="flex-1 flex flex-col">
                 {renderChatMessages()}
                 {!completed && renderChatInput()}
@@ -716,45 +723,53 @@ export default function FormChat() {
               </div>
             ) : (
               <div className="flex-1 p-4 overflow-y-auto">
-                <Tabs defaultValue={currentSection}>
-                  <TabsList className="mb-4">
+                {sections.length > 0 ? (
+                  <Tabs defaultValue={currentSection}>
+                    <TabsList className="mb-4">
+                      {sections.map((section) => (
+                        <TabsTrigger
+                          key={section.id}
+                          value={section.id}
+                          onClick={() => setCurrentSection(section.id)}
+                        >
+                          {section.name}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                    
                     {sections.map((section) => (
-                      <TabsTrigger
-                        key={section.id}
-                        value={section.id}
-                        onClick={() => setCurrentSection(section.id)}
-                      >
-                        {section.name}
-                      </TabsTrigger>
+                      <TabsContent key={section.id} value={section.id}>
+                        <Card>
+                          <CardHeader>
+                            <CardTitle>{section.name}</CardTitle>
+                            <CardDescription>Please fill out the fields below</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="space-y-4">
+                              {section.fields.map((field) => (
+                                <div key={field.id} className="space-y-2">
+                                  <Label htmlFor={field.id}>{field.name}{field.required && <span className="text-red-500">*</span>}</Label>
+                                  {renderField(field)}
+                                </div>
+                              ))}
+                            </div>
+                          </CardContent>
+                          <CardFooter>
+                            <Button onClick={handleCompleteSection}>
+                              {section.id === sections[sections.length - 1]?.id ? 'Complete Form' : 'Next Section'}
+                            </Button>
+                          </CardFooter>
+                        </Card>
+                      </TabsContent>
                     ))}
-                  </TabsList>
-                  
-                  {sections.map((section) => (
-                    <TabsContent key={section.id} value={section.id}>
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>{section.name}</CardTitle>
-                          <CardDescription>Please fill out the fields below</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-4">
-                            {section.fields.map((field) => (
-                              <div key={field.id} className="space-y-2">
-                                <Label htmlFor={field.id}>{field.name}{field.required && <span className="text-red-500">*</span>}</Label>
-                                {renderField(field)}
-                              </div>
-                            ))}
-                          </div>
-                        </CardContent>
-                        <CardFooter>
-                          <Button onClick={handleCompleteSection}>
-                            {section.id === sections[sections.length - 1]?.id ? 'Complete Form' : 'Next Section'}
-                          </Button>
-                        </CardFooter>
-                      </Card>
-                    </TabsContent>
-                  ))}
-                </Tabs>
+                  </Tabs>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="text-center">
+                      <p>No form sections found. Please try again.</p>
+                    </div>
+                  </div>
+                )}
                 
                 {completed && (
                   <div className="mt-8 p-4 border rounded-lg">
