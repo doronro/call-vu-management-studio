@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Star } from 'lucide-react';
 
-export default function StarRating({ maxScale = 5, onChange, value }) {
+export function StarRating({ maxScale = 5, onChange, value }) {
   const [hoverRating, setHoverRating] = useState(0);
   const [selectedRating, setSelectedRating] = useState(value || 0);
 

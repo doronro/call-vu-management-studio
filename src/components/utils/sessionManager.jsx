@@ -1,4 +1,52 @@
 // Fix the session manager code
+import { useState, useCallback, useEffect } from 'react';
+
+export function useSessionManager() {
+  const [messages, setMessages] = useState([]);
+  
+  // Load messages from storage on component mount
+  useEffect(() => {
+    try {
+      const storedMessages = localStorage.getItem('chat_messages');
+      if (storedMessages) {
+        setMessages(JSON.parse(storedMessages));
+      }
+    } catch (error) {
+      console.error("Error loading messages:", error);
+    }
+  }, []);
+  
+  // Add a new message to the chat
+  const addMessage = useCallback((text, sender) => {
+    const newMessage = {
+      id: Date.now(),
+      text,
+      sender,
+      timestamp: new Date().toISOString()
+    };
+    
+    setMessages(prevMessages => {
+      const updatedMessages = [...prevMessages, newMessage];
+      // Store in localStorage
+      try {
+        localStorage.setItem('chat_messages', JSON.stringify(updatedMessages));
+      } catch (error) {
+        console.error("Error saving messages:", error);
+      }
+      return updatedMessages;
+    });
+  }, []);
+  
+  // Get all messages
+  const getMessages = useCallback(() => {
+    return messages;
+  }, [messages]);
+  
+  return {
+    addMessage,
+    getMessages
+  };
+}
 export const createSession = (formSchema) => {
   try {
     const sessionId = `form_${Date.now()}`;
