@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { useToast } from '../components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
 import { useSessionManager } from '../components/utils/sessionManager';
+import { parseFormSchema } from '../components/utils/formParser';
 import { cn } from '../lib/utils';
 
 export default function FormChat() {
@@ -39,7 +40,7 @@ export default function FormChat() {
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const processId = searchParams.get('processId');
-    const mode = searchParams.get('mode') || 'form';
+    const mode = searchParams.get('mode') || 'chat';
     
     console.log("URL Parameters:", { processId, mode });
     console.log("Setting interaction mode to:", mode);
@@ -47,7 +48,7 @@ export default function FormChat() {
     
     if (processId) {
       console.log("Starting to load process:", processId);
-      loadProcess(processId);
+      loadProcess(processId, mode);
     } else {
       console.error("No process ID provided");
       setLoading(false);
@@ -69,10 +70,10 @@ export default function FormChat() {
     }
   }, [messages]);
 
-  const loadProcess = async (processId) => {
+  const loadProcess = async (processId, mode) => {
     try {
       setLoading(true);
-      console.log("Loading process with ID:", processId);
+      console.log("Loading process with ID:", processId, "in mode:", mode);
       
       // First try to get the process directly by ID
       let processes = [];
@@ -107,7 +108,7 @@ export default function FormChat() {
             if (fallbackProcess.formSchemaId || fallbackProcess.formAsset) {
               const formId = fallbackProcess.formSchemaId || fallbackProcess.formAsset;
               console.log("Loading form schema with ID:", formId);
-              loadForm(formId);
+              loadForm(formId, mode);
             } else {
               console.error("No form schema associated with fallback process");
               setLoading(false);
@@ -133,7 +134,7 @@ export default function FormChat() {
       const formId = process.formSchemaId || process.formAsset;
       if (formId) {
         console.log("Loading form schema with ID:", formId);
-        loadForm(formId);
+        loadForm(formId, mode);
       } else {
         console.error("No form schema associated with this process");
         setLoading(false);
@@ -148,14 +149,14 @@ export default function FormChat() {
         console.log("Creating new session:", {
           sessionId: newSessionId,
           processId: processId,
-          mode: interactionMode,
+          mode: mode,
           startTime: new Date().toISOString()
         });
         
         await Session.create({
           sessionId: newSessionId,
           processId: processId,
-          mode: interactionMode,
+          mode: mode,
           startTime: new Date().toISOString(),
           completed: false,
           formData: {}
@@ -173,23 +174,87 @@ export default function FormChat() {
     }
   };
 
-  const loadForm = async (formId) => {
+  const loadForm = async (formId, mode) => {
     try {
       setLoading(true);
-      console.log("Loading form schema with ID:", formId);
+      console.log("Loading form schema with ID:", formId, "in mode:", mode);
       
       // Check if formId is a complex object (like a file asset) instead of a simple string
       if (typeof formId === 'object' && formId !== null) {
         console.log("Form ID is a complex object:", formId);
         
+        // If it's a file asset with a URL, try to load the actual CVUF file
+        if (formId.url) {
+          console.log("Form asset has URL:", formId.url);
+          try {
+            const response = await fetch(formId.url);
+            if (response.ok) {
+              const formData = await response.json();
+              console.log("Successfully loaded form data from URL:", formData);
+              
+              // Use the form parser to parse the CVUF file
+              const parsedForm = parseFormSchema(formData);
+              console.log("Parsed form schema:", parsedForm);
+              
+              // Initialize the form with the parsed schema
+              initializeFormFromParsedSchema(parsedForm);
+              return;
+            } else {
+              console.error("Failed to load form data from URL:", response.status);
+            }
+          } catch (error) {
+            console.error("Error loading form data from URL:", error);
+          }
+        }
+        
         // Try to use a property of the object as the ID
         if (formId.name) {
           console.log("Using form asset name as ID:", formId.name);
-          // Create a simple mock form schema based on the file name
-          const mockSchema = createMockFormSchema(formId.name);
-          console.log("Created mock form schema:", mockSchema);
-          initializeForm(mockSchema);
-          return;
+          
+          // Try to load the CVUF file by name
+          try {
+            // Construct a URL based on the file name
+            const fileUrl = `/assets/forms/${formId.name}`;
+            console.log("Attempting to load form from:", fileUrl);
+            
+            const response = await fetch(fileUrl);
+            if (response.ok) {
+              const formData = await response.json();
+              console.log("Successfully loaded form data from file:", formData);
+              
+              // Use the form parser to parse the CVUF file
+              const parsedForm = parseFormSchema(formData);
+              console.log("Parsed form schema:", parsedForm);
+              
+              // Initialize the form with the parsed schema
+              initializeFormFromParsedSchema(parsedForm);
+              return;
+            } else {
+              console.error("Failed to load form data from file:", response.status);
+            }
+          } catch (error) {
+            console.error("Error loading form data from file:", error);
+          }
+          
+          // If loading the actual file failed, create a mock schema as fallback
+          // but only if we're not in chat or voice mode
+          if (mode !== 'chat' && mode !== 'voice') {
+            const mockSchema = createMockFormSchema(formId.name);
+            console.log("Created mock form schema:", mockSchema);
+            initializeForm(mockSchema);
+            return;
+          } else {
+            // For chat or voice mode, we need to use the actual CVUF file
+            console.error("Failed to load CVUF file for chat/voice mode");
+            toast({
+              title: "Error",
+              description: "Failed to load the form for chat/voice mode. Please try again or contact support.",
+              variant: "destructive"
+            });
+            setLoading(false);
+            setInitializing(false);
+            return;
+          }
         }
         
         // If we can't extract a usable ID, try to get all form schemas
@@ -219,64 +284,232 @@ export default function FormChat() {
         return;
       }
       
-      // If formId is a simple string, proceed with normal loading
-      let formSchemas = [];
+      // If formId is a string, try to get the form schema directly
       try {
-        formSchemas = await FormSchema.filter({ id: formId });
+        const formSchemas = await FormSchema.filter({ id: formId });
         console.log("Form schema filter result:", formSchemas);
-      } catch (error) {
-        console.error("Error in FormSchema.filter:", error);
-        // Try to get all form schemas and filter manually
-        try {
-          const allFormSchemas = await FormSchema.list();
-          console.log("All form schemas:", allFormSchemas);
-          formSchemas = allFormSchemas.filter(f => f.id === formId);
-          console.log("Filtered form schemas:", formSchemas);
-        } catch (listError) {
-          console.error("Error in FormSchema.list:", listError);
-        }
-      }
-      
-      if (formSchemas.length === 0) {
-        console.error("Form schema not found, trying to get all form schemas");
-        try {
-          const allFormSchemas = await FormSchema.list();
-          console.log("All available form schemas:", allFormSchemas);
-          
-          if (allFormSchemas.length > 0) {
-            // Use the first form schema as fallback
-            const fallbackSchema = allFormSchemas[0];
-            console.log("Using fallback form schema:", fallbackSchema);
-            initializeForm(fallbackSchema);
-          } else {
-            console.error("No form schemas available");
-            // Create a generic form schema as last resort
-            const genericSchema = createGenericFormSchema();
-            console.log("Created generic form schema:", genericSchema);
-            initializeForm(genericSchema);
-          }
-        } catch (error) {
-          console.error("Error getting all form schemas:", error);
-          // Create a generic form schema as last resort
+        
+        if (formSchemas.length > 0) {
+          const schema = formSchemas[0];
+          console.log("Found form schema:", schema);
+          initializeForm(schema);
+        } else {
+          console.error("Form schema not found with ID:", formId);
+          // Create a generic form schema as fallback
           const genericSchema = createGenericFormSchema();
           console.log("Created generic form schema:", genericSchema);
           initializeForm(genericSchema);
         }
-        return;
+      } catch (error) {
+        console.error("Error getting form schema:", error);
+        // Create a generic form schema as fallback
+        const genericSchema = createGenericFormSchema();
+        console.log("Created generic form schema:", genericSchema);
+        initializeForm(genericSchema);
       }
-      
-      const schema = formSchemas[0];
-      initializeForm(schema);
     } catch (error) {
       console.error("Error loading form:", error);
-      // Create a generic form schema as last resort
-      const genericSchema = createGenericFormSchema();
-      console.log("Created generic form schema:", genericSchema);
-      initializeForm(genericSchema);
+      setLoading(false);
+      setInitializing(false);
     }
   };
 
-  // Create a mock form schema based on a file name
+  const initializeFormFromParsedSchema = (parsedSchema) => {
+    try {
+      console.log("Initializing form from parsed schema:", parsedSchema);
+      
+      if (!parsedSchema || !parsedSchema.steps) {
+        console.error("Invalid parsed schema");
+        setLoading(false);
+        setInitializing(false);
+        return;
+      }
+      
+      // Set the form schema
+      setFormSchema(parsedSchema);
+      
+      // Set the sections based on steps
+      setSections(parsedSchema.steps);
+      
+      // Set the current section to the first one
+      if (parsedSchema.steps.length > 0) {
+        setCurrentSection(parsedSchema.steps[0]);
+      }
+      
+      // Initialize form data
+      const initialFormData = {};
+      if (parsedSchema.fields) {
+        parsedSchema.fields.forEach(field => {
+          initialFormData[field.id] = '';
+        });
+      }
+      setFormData(initialFormData);
+      
+      setLoading(false);
+      setInitializing(false);
+    } catch (error) {
+      console.error("Error initializing form from parsed schema:", error);
+      setLoading(false);
+      setInitializing(false);
+    }
+  };
+
+  const initializeForm = (schema) => {
+    try {
+      console.log("Initializing form with schema:", schema);
+      
+      if (!schema) {
+        console.error("Invalid schema");
+        setLoading(false);
+        setInitializing(false);
+        return;
+      }
+      
+      // Set the form schema
+      setFormSchema(schema);
+      
+      // Extract sections from the schema
+      let extractedSections = [];
+      if (schema.sections) {
+        extractedSections = schema.sections;
+      } else if (schema.form && schema.form.sections) {
+        extractedSections = schema.form.sections;
+      } else if (schema.form && schema.form.steps) {
+        // Convert steps to sections
+        extractedSections = schema.form.steps.map(step => ({
+          id: step.identifier || `section_${step.stepName}`,
+          name: step.stepName || 'Section',
+          fields: []
+        }));
+      }
+      
+      // Set the sections
+      setSections(extractedSections);
+      
+      // Set the current section to the first one
+      if (extractedSections.length > 0) {
+        setCurrentSection(extractedSections[0]);
+      }
+      
+      // Initialize form data
+      const initialFormData = {};
+      if (schema.fields) {
+        schema.fields.forEach(field => {
+          initialFormData[field.id] = '';
+        });
+      }
+      setFormData(initialFormData);
+      
+      setLoading(false);
+      setInitializing(false);
+    } catch (error) {
+      console.error("Error initializing form:", error);
+      setLoading(false);
+      setInitializing(false);
+    }
+  };
+
+  const handleInputChange = (e) => {
+    setUserInput(e.target.value);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!userInput.trim()) return;
+    
+    // Add user message
+    addMessage(userInput, 'user');
+    
+    // Process user input
+    processUserInput(userInput);
+    
+    // Clear input
+    setUserInput('');
+  };
+
+  const processUserInput = (input) => {
+    // Simple bot response for now
+    setTimeout(() => {
+      addMessage("I've received your input. Let me process that for you.", 'bot');
+    }, 500);
+  };
+
+  const handleFieldChange = (fieldId, value) => {
+    setFormData(prev => ({
+      ...prev,
+      [fieldId]: value
+    }));
+  };
+
+  const handleSectionChange = (sectionId) => {
+    const section = sections.find(s => s.id === sectionId);
+    if (section) {
+      setCurrentSection(section);
+    }
+  };
+
+  const handleFormSubmit = async () => {
+    try {
+      setLoading(true);
+      
+      // Update session with form data and completion status
+      if (sessionId) {
+        await Session.update(sessionId, {
+          formData: formData,
+          completed: true,
+          endTime: new Date().toISOString()
+        });
+        
+        console.log("Session updated with form data:", formData);
+      }
+      
+      setCompleted(true);
+      setShowRating(true);
+      setLoading(false);
+    } catch (error) {
+      console.error("Error submitting form:", error);
+      setLoading(false);
+      
+      toast({
+        title: "Error",
+        description: "There was a problem submitting the form. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleRatingSubmit = async () => {
+    try {
+      setLoading(true);
+      
+      // Update session with rating
+      if (sessionId) {
+        await Session.update(sessionId, {
+          ratings: {
+            overallExperience: userRating
+          }
+        });
+        
+        console.log("Session updated with rating:", userRating);
+      }
+      
+      setLoading(false);
+      
+      // Navigate back to dashboard
+      navigate('/');
+    } catch (error) {
+      console.error("Error submitting rating:", error);
+      setLoading(false);
+      
+      toast({
+        title: "Error",
+        description: "There was a problem submitting your rating. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Create a mock form schema based on the file name
   const createMockFormSchema = (fileName) => {
     // Extract a readable name from the file name
     let formName = fileName.replace(/[_\-.]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -320,7 +553,7 @@ export default function FormChat() {
             id: 'confirmation',
             name: 'Confirmation',
             fields: [
-              { id: 'confirm_accuracy', name: 'I confirm that the information provided is accurate', type: 'checkbox', required: true },
+              { id: 'confirm_accurate', name: 'I confirm that the information provided is accurate', type: 'checkbox', required: true },
               { id: 'signature', name: 'Signature', type: 'text', required: true }
             ]
           }
@@ -328,466 +561,324 @@ export default function FormChat() {
       };
     }
     
-    // Generic form based on the file name
+    // Generic form for other file names
     return {
-      id: 'mock-form-' + Date.now(),
-      name: formName || 'Form Process',
-      description: 'Form generated from ' + fileName,
+      id: 'generic-form',
+      name: formName || 'Form',
+      description: 'Form generated from file',
       sections: [
         {
           id: 'personal_information',
           name: 'Personal Information',
           fields: [
-            { id: 'name', name: 'Full Name', type: 'text', required: true },
+            { id: 'full_name', name: 'Full Name', type: 'text', required: true },
             { id: 'email', name: 'Email Address', type: 'email', required: true },
-            { id: 'phone', name: 'Phone Number', type: 'text', required: false }
+            { id: 'phone', name: 'Phone Number', type: 'tel', required: false }
           ]
         },
         {
-          id: 'request_details',
-          name: 'Request Details',
+          id: 'form_details',
+          name: 'Form Details',
           fields: [
-            { id: 'request_type', name: 'Request Type', type: 'select', options: ['Information', 'Service', 'Support', 'Other'], required: true },
-            { id: 'description', name: 'Description', type: 'textarea', required: true }
-          ]
-        },
-        {
-          id: 'confirmation',
-          name: 'Confirmation',
-          fields: [
-            { id: 'terms', name: 'I agree to the terms and conditions', type: 'checkbox', required: true }
+            { id: 'subject', name: 'Subject', type: 'text', required: true },
+            { id: 'message', name: 'Message', type: 'textarea', required: true },
+            { id: 'priority', name: 'Priority', type: 'select', options: ['Low', 'Medium', 'High'], required: true }
           ]
         }
       ]
     };
   };
 
-  // Create a generic form schema as last resort
+  // Create a generic form schema as a last resort
   const createGenericFormSchema = () => {
     return {
-      id: 'generic-form-' + Date.now(),
-      name: 'Customer Information Form',
-      description: 'Basic customer information form',
+      id: 'generic-form',
+      name: 'Generic Form',
+      description: 'A generic form for data collection',
       sections: [
         {
           id: 'personal_information',
           name: 'Personal Information',
           fields: [
-            { id: 'name', name: 'Full Name', type: 'text', required: true },
+            { id: 'full_name', name: 'Full Name', type: 'text', required: true },
             { id: 'email', name: 'Email Address', type: 'email', required: true },
-            { id: 'phone', name: 'Phone Number', type: 'text', required: false }
+            { id: 'phone', name: 'Phone Number', type: 'tel', required: false },
+            { id: 'date_of_birth', name: 'Date of Birth', type: 'date', required: false }
           ]
         },
         {
-          id: 'address',
-          name: 'Address',
+          id: 'contact_preferences',
+          name: 'Contact Preferences',
           fields: [
-            { id: 'street', name: 'Street Address', type: 'text', required: true },
-            { id: 'city', name: 'City', type: 'text', required: true },
-            { id: 'state', name: 'State/Province', type: 'text', required: true },
-            { id: 'zip', name: 'Zip/Postal Code', type: 'text', required: true },
-            { id: 'country', name: 'Country', type: 'text', required: true }
+            { id: 'preferred_contact', name: 'Preferred Contact Method', type: 'select', options: ['Email', 'Phone', 'Mail'], required: true },
+            { id: 'receive_updates', name: 'Would you like to receive updates?', type: 'radio', options: ['Yes', 'No'], required: true }
           ]
         },
         {
-          id: 'preferences',
-          name: 'Preferences',
+          id: 'additional_information',
+          name: 'Additional Information',
           fields: [
-            { id: 'contact_method', name: 'Preferred Contact Method', type: 'select', options: ['Email', 'Phone', 'Mail'], required: true },
-            { id: 'comments', name: 'Additional Comments', type: 'textarea', required: false }
+            { id: 'comments', name: 'Comments', type: 'textarea', required: false },
+            { id: 'terms_accepted', name: 'I accept the terms and conditions', type: 'checkbox', required: true }
           ]
         }
       ]
     };
   };
 
-  const initializeForm = (schema) => {
-    console.log("Initializing form with schema:", schema);
-    setFormSchema(schema);
-    
-    // Extract sections from schema
-    const schemaSections = schema.sections || [];
-    console.log("Schema sections:", schemaSections);
-    setSections(schemaSections);
-    
-    // Initialize form data
-    const initialData = {};
-    schemaSections.forEach(section => {
-      section.fields.forEach(field => {
-        initialData[field.id] = '';
-      });
-    });
-    setFormData(initialData);
-    
-    // Set initial section
-    if (schemaSections.length > 0) {
-      let introMessage = `I'll help you fill out the ${schema.name}.`;
-      const firstSection = schemaSections[0]?.id;
-      console.log("Setting initial section to:", firstSection);
-      if (firstSection) {
-        introMessage += ` Let's start with the ${firstSection} section.`;
-        setCurrentSection(firstSection);
-        addMessage(introMessage, "bot");
-      }
-    } else {
-      console.error("No sections found in schema");
-    }
-    
-    console.log("Current interaction mode:", interactionMode);
-    setLoading(false);
-    setInitializing(false);
-  };
-
-  const handleInputChange = (fieldId, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [fieldId]: value
-    }));
-  };
-
-  const handleSendMessage = () => {
-    if (!userInput.trim()) return;
-    
-    addMessage(userInput, "user");
-    setUserInput('');
-    
-    // Simple bot response
-    setTimeout(() => {
-      addMessage("I've received your message. Let me help you with that.", "bot");
-    }, 500);
-  };
-
-  const handleCompleteSection = () => {
-    const currentSectionIndex = sections.findIndex(s => s.id === currentSection);
-    if (currentSectionIndex < sections.length - 1) {
-      const nextSection = sections[currentSectionIndex + 1].id;
-      setCurrentSection(nextSection);
-      addMessage(`Great! Let's move on to the ${nextSection} section.`, "bot");
-    } else {
-      handleCompleteForm();
-    }
-  };
-
-  const handleCompleteForm = () => {
-    setCompleted(true);
-    setShowRating(true);
-    addMessage("Thank you for completing the form! How would you rate your experience?", "bot");
-    
-    // Mark session as completed
-    markSessionComplete(formData);
-  };
-
-  const markSessionComplete = async (formData) => {
-    try {
-      if (!sessionId) return;
-
-      const sessions = await Session.filter({ sessionId: sessionId });
-      if (sessions.length === 0) return;
-
-      const session = sessions[0];
-
-      await Session.update(session.id, {
-        formData: formData,
-        completed: true,
-        endTime: new Date().toISOString()
-      });
-
-      console.log("Session marked as completed");
-
-      if (window.parent !== window) {
-        window.parent.postMessage({
-          type: 'SESSION_COMPLETED',
-          sessionId: sessionId
-        }, '*');
-      }
-    } catch (error) {
-      console.error("Error marking session as completed:", error);
-    }
-  };
-
-  const handleRatingSubmit = async (rating) => {
-    setUserRating(rating);
-    
-    try {
-      if (!sessionId) return;
-      
-      const sessions = await Session.filter({ sessionId: sessionId });
-      if (sessions.length === 0) return;
-      
-      const session = sessions[0];
-      
-      // Create ratings object with the structure expected by analytics
-      const ratings = {
-        overallExperience: rating,
-        easeOfUse: rating,
-        accuracy: rating,
-        comments: ""
-      };
-      
-      // Update session with ratings
-      await Session.update(session.id, { ratings });
-      
-      addMessage(`Thank you for your rating of ${rating} stars!`, "bot");
-      console.log("Session ratings updated successfully");
-    } catch (error) {
-      console.error("Error updating session ratings:", error);
-    }
-  };
-
-  const renderField = (field) => {
-    switch (field.type) {
-      case 'text':
-      case 'email':
-      case 'number':
-        return (
-          <Input
-            id={field.id}
-            type={field.type}
-            value={formData[field.id] || ''}
-            onChange={(e) => handleInputChange(field.id, e.target.value)}
-            required={field.required}
-          />
-        );
-      case 'textarea':
-        return (
-          <Textarea
-            id={field.id}
-            value={formData[field.id] || ''}
-            onChange={(e) => handleInputChange(field.id, e.target.value)}
-            required={field.required}
-          />
-        );
-      case 'select':
-        return (
-          <select
-            id={field.id}
-            value={formData[field.id] || ''}
-            onChange={(e) => handleInputChange(field.id, e.target.value)}
-            required={field.required}
-            className="w-full p-2 border rounded"
-          >
-            <option value="">Select an option</option>
-            {field.options?.map((option) => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-          </select>
-        );
-      case 'radio':
-        return (
-          <div className="flex flex-col space-y-2">
-            {field.options?.map((option) => (
-              <div key={option} className="flex items-center space-x-2">
-                <input
-                  type="radio"
-                  id={`${field.id}-${option}`}
-                  name={field.id}
-                  value={option}
-                  checked={formData[field.id] === option}
-                  onChange={() => handleInputChange(field.id, option)}
-                  required={field.required}
-                />
-                <label htmlFor={`${field.id}-${option}`}>{option}</label>
-              </div>
-            ))}
-          </div>
-        );
-      case 'checkbox':
-        return (
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id={field.id}
-              checked={formData[field.id] === true}
-              onChange={(e) => handleInputChange(field.id, e.target.checked)}
-              required={field.required}
-            />
-            <label htmlFor={field.id}>{field.name}</label>
-          </div>
-        );
-      case 'date':
-        return (
-          <Input
-            id={field.id}
-            type="date"
-            value={formData[field.id] || ''}
-            onChange={(e) => handleInputChange(field.id, e.target.value)}
-            required={field.required}
-          />
-        );
-      default:
-        return (
-          <Input
-            id={field.id}
-            value={formData[field.id] || ''}
-            onChange={(e) => handleInputChange(field.id, e.target.value)}
-            required={field.required}
-          />
-        );
-    }
-  };
-
-  const renderCurrentSection = () => {
-    const section = sections.find(s => s.id === currentSection);
-    if (!section) return null;
-
+  if (loading && initializing) {
     return (
-      <div className="space-y-4">
-        <h3 className="text-lg font-medium">{section.name}</h3>
-        {section.fields.map((field) => (
-          <div key={field.id} className="space-y-2">
-            <Label htmlFor={field.id}>{field.name}{field.required && <span className="text-red-500">*</span>}</Label>
-            {renderField(field)}
-          </div>
-        ))}
-        <Button onClick={handleCompleteSection}>
-          {currentSection === sections[sections.length - 1]?.id ? 'Complete Form' : 'Next Section'}
-        </Button>
-      </div>
-    );
-  };
-
-  const renderChatMessages = () => {
-    return (
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg, index) => (
-          <div
-            key={index}
-            className={cn(
-              "max-w-[80%] rounded-lg p-3",
-              msg.sender === "user"
-                ? "bg-primary text-primary-foreground ml-auto"
-                : "bg-muted"
-            )}
-          >
-            {msg.content}
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-    );
-  };
-
-  const renderChatInput = () => {
-    return (
-      <div className="p-4 border-t">
-        <div className="flex space-x-2">
-          <Input
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            placeholder="Type your message..."
-            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-          />
-          <Button onClick={handleSendMessage}>Send</Button>
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <p className="text-gray-600">Loading form...</p>
         </div>
       </div>
     );
-  };
+  }
 
-  if (initializing) {
+  if (showRating) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen p-4">
-        <h1 className="text-2xl font-bold mb-4">Form Chat</h1>
-        <p className="text-gray-500 mb-4">Initializing...</p>
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="container mx-auto py-10 px-4 max-w-2xl">
+        <Card>
+          <CardHeader>
+            <CardTitle>Thank You!</CardTitle>
+            <CardDescription>Your form has been submitted successfully.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              <div className="text-center">
+                <h3 className="text-lg font-medium mb-4">How would you rate your experience?</h3>
+                <StarRating 
+                  value={userRating} 
+                  onChange={setUserRating} 
+                  size={8} 
+                />
+              </div>
+            </div>
+          </CardContent>
+          <CardFooter className="flex justify-end">
+            <Button 
+              onClick={handleRatingSubmit}
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                'Submit Rating'
+              )}
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
+  if (interactionMode === 'chat' || interactionMode === 'voice') {
+    return (
+      <div className="container mx-auto py-10 px-4 max-w-4xl">
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>{processName}</CardTitle>
+            <CardDescription>
+              {interactionMode === 'chat' ? 'Chat Mode' : 'Voice Mode'}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+        
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          <div className="h-[60vh] overflow-y-auto p-4 space-y-4 bg-gray-50">
+            {messages.map((msg, index) => (
+              <div 
+                key={index} 
+                className={cn(
+                  "flex max-w-[80%] rounded-lg p-4",
+                  msg.sender === 'user' 
+                    ? "bg-blue-600 text-white ml-auto" 
+                    : "bg-gray-200 text-gray-800"
+                )}
+              >
+                {msg.text}
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+          
+          <div className="p-4 border-t">
+            <form onSubmit={handleSubmit} className="flex gap-2">
+              <Input
+                value={userInput}
+                onChange={handleInputChange}
+                placeholder="Type your message..."
+                className="flex-1"
+              />
+              <Button 
+                type="submit" 
+                className="bg-blue-600 hover:bg-blue-700"
+                disabled={loading}
+              >
+                Send
+              </Button>
+            </form>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
-      <header className="bg-primary text-primary-foreground p-4">
-        <h1 className="text-2xl font-bold">{processName}</h1>
-      </header>
+    <div className="container mx-auto py-10 px-4 max-w-4xl">
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>{formSchema?.name || 'Form'}</CardTitle>
+          <CardDescription>{formSchema?.description || ''}</CardDescription>
+        </CardHeader>
+      </Card>
       
-      <main className="flex-1 flex">
-        {loading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-              <p>Loading form...</p>
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="md:col-span-1">
+          <div className="space-y-2">
+            {sections.map((section, index) => (
+              <Button
+                key={section.id}
+                variant={currentSection?.id === section.id ? "default" : "outline"}
+                className="w-full justify-start"
+                onClick={() => handleSectionChange(section.id)}
+              >
+                <span className="mr-2">{index + 1}.</span>
+                {section.name}
+              </Button>
+            ))}
           </div>
-        ) : (
-          <div className="flex-1 flex">
-            {/* Force form mode regardless of interactionMode setting */}
-            {false ? (
-              <div className="flex-1 flex flex-col">
-                {renderChatMessages()}
-                {!completed && renderChatInput()}
-                {showRating && !userRating && (
-                  <div className="p-4 border-t">
-                    <p className="mb-2">Please rate your experience:</p>
-                    <StarRating onRatingChange={handleRatingSubmit} />
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex-1 p-4 overflow-y-auto">
-                {sections.length > 0 ? (
-                  <Tabs defaultValue={currentSection}>
-                    <TabsList className="mb-4">
-                      {sections.map((section) => (
-                        <TabsTrigger
-                          key={section.id}
-                          value={section.id}
-                          onClick={() => setCurrentSection(section.id)}
-                        >
-                          {section.name}
-                        </TabsTrigger>
-                      ))}
-                    </TabsList>
+        </div>
+        
+        <div className="md:col-span-3">
+          <Card>
+            <CardHeader>
+              <CardTitle>{currentSection?.name || 'Section'}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                {currentSection?.fields?.map(field => (
+                  <div key={field.id} className="space-y-2">
+                    <Label htmlFor={field.id}>
+                      {field.name}
+                      {field.required && <span className="text-red-500 ml-1">*</span>}
+                    </Label>
                     
-                    {sections.map((section) => (
-                      <TabsContent key={section.id} value={section.id}>
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>{section.name}</CardTitle>
-                            <CardDescription>Please fill out the fields below</CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-4">
-                              {section.fields.map((field) => (
-                                <div key={field.id} className="space-y-2">
-                                  <Label htmlFor={field.id}>{field.name}{field.required && <span className="text-red-500">*</span>}</Label>
-                                  {renderField(field)}
-                                </div>
-                              ))}
-                            </div>
-                          </CardContent>
-                          <CardFooter>
-                            <Button onClick={handleCompleteSection}>
-                              {section.id === sections[sections.length - 1]?.id ? 'Complete Form' : 'Next Section'}
-                            </Button>
-                          </CardFooter>
-                        </Card>
-                      </TabsContent>
-                    ))}
-                  </Tabs>
-                ) : (
-                  <div className="flex-1 flex items-center justify-center">
-                    <div className="text-center">
-                      <p>No form sections found. Please try again.</p>
-                    </div>
-                  </div>
-                )}
-                
-                {completed && (
-                  <div className="mt-8 p-4 border rounded-lg">
-                    <h3 className="text-xl font-bold mb-4">Form Completed</h3>
-                    <p className="mb-4">Thank you for completing the form!</p>
-                    {!userRating && (
-                      <div>
-                        <p className="mb-2">Please rate your experience:</p>
-                        <StarRating onRatingChange={handleRatingSubmit} />
+                    {field.type === 'textarea' ? (
+                      <Textarea
+                        id={field.id}
+                        value={formData[field.id] || ''}
+                        onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                        required={field.required}
+                      />
+                    ) : field.type === 'select' ? (
+                      <select
+                        id={field.id}
+                        value={formData[field.id] || ''}
+                        onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                        required={field.required}
+                        className="w-full p-2 border rounded-md"
+                      >
+                        <option value="">Select an option</option>
+                        {field.options?.map(option => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    ) : field.type === 'radio' ? (
+                      <div className="space-y-2">
+                        {field.options?.map(option => (
+                          <div key={option} className="flex items-center">
+                            <input
+                              type="radio"
+                              id={`${field.id}_${option}`}
+                              name={field.id}
+                              value={option}
+                              checked={formData[field.id] === option}
+                              onChange={() => handleFieldChange(field.id, option)}
+                              required={field.required}
+                              className="mr-2"
+                            />
+                            <Label htmlFor={`${field.id}_${option}`}>{option}</Label>
+                          </div>
+                        ))}
                       </div>
+                    ) : field.type === 'checkbox' ? (
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          id={field.id}
+                          checked={!!formData[field.id]}
+                          onChange={(e) => handleFieldChange(field.id, e.target.checked)}
+                          required={field.required}
+                          className="mr-2"
+                        />
+                        <Label htmlFor={field.id}>{field.name}</Label>
+                      </div>
+                    ) : (
+                      <Input
+                        id={field.id}
+                        type={field.type === 'email' ? 'email' : field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'}
+                        value={formData[field.id] || ''}
+                        onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                        required={field.required}
+                      />
                     )}
                   </div>
-                )}
+                ))}
               </div>
-            )}
-          </div>
-        )}
-      </main>
+            </CardContent>
+            <CardFooter className="flex justify-between">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const currentIndex = sections.findIndex(s => s.id === currentSection?.id);
+                  if (currentIndex > 0) {
+                    setCurrentSection(sections[currentIndex - 1]);
+                  }
+                }}
+                disabled={sections.findIndex(s => s.id === currentSection?.id) === 0}
+              >
+                Previous
+              </Button>
+              
+              {sections.findIndex(s => s.id === currentSection?.id) === sections.length - 1 ? (
+                <Button 
+                  onClick={handleFormSubmit}
+                  disabled={loading}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Form'
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => {
+                    const currentIndex = sections.findIndex(s => s.id === currentSection?.id);
+                    if (currentIndex < sections.length - 1) {
+                      setCurrentSection(sections[currentIndex + 1]);
+                    }
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  Next
+                </Button>
+              )}
+            </CardFooter>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
