@@ -14,8 +14,12 @@ import { useToast } from '../components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
 import { useSessionManager } from '../components/utils/sessionManager';
 import { parseFormSchema } from '../components/utils/formParser';
-import { parseCVUFSchema } from '../components/utils/cvufParser';
 import { cn } from '../lib/utils';
+import ChatMessage from '../components/chat/ChatMessage';
+import FormField from '../components/chat/FormField';
+import SummaryTable from '../components/chat/SummaryTable';
+import Avatar from '../components/chat/Avatar';
+import SimpleVoice from '../components/chat/SimpleVoice';
 
 export default function FormChat() {
   const navigate = useNavigate();
@@ -35,31 +39,112 @@ export default function FormChat() {
   const [showRating, setShowRating] = useState(false);
   const [userRating, setUserRating] = useState(0);
   const [interactionMode, setInteractionMode] = useState('form');
-  const [cvufData, setCvufData] = useState(null);
+  const [fields, setFields] = useState([]);
+  const [currentFieldIndex, setCurrentFieldIndex] = useState(-1);
+  const [isTyping, setIsTyping] = useState(false);
+  const [validationError, setValidationError] = useState(null);
+  const [formTitle, setFormTitle] = useState("");
+  const [formLoaded, setFormLoaded] = useState(false);
+  const [visibilityRules, setVisibilityRules] = useState([]);
+  const [updatingRules, setUpdatingRules] = useState([]);
+  const [blockVisibility, setBlockVisibility] = useState({});
+  const [fieldVisibility, setFieldVisibility] = useState({});
+  const [globalVariables, setGlobalVariables] = useState({});
+  const [processedSections, setProcessedSections] = useState({});
+  const [answeredFields, setAnsweredFields] = useState({});
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [currentReadingText, setCurrentReadingText] = useState("");
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const lastBotMessageRef = useRef("");
+  const speechSynthesisRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const bottomRef = useRef(null);
   const { addMessage, getMessages } = useSessionManager();
 
   useEffect(() => {
-    const searchParams = new URLSearchParams(location.search);
-    const processId = searchParams.get('processId');
-    const mode = searchParams.get('mode') || 'chat';
-    
-    console.log("URL Parameters:", { processId, mode });
-    console.log("Setting interaction mode to:", mode);
-    setInteractionMode(mode);
-    
-    if (processId) {
-      console.log("Starting to load process:", processId);
-      loadProcess(processId, mode);
-    } else {
-      console.error("No process ID provided");
-      setLoading(false);
-      setInitializing(false);
+    console.log("FormChat mounted");
+    const url = new URL(window.location.href);
+    console.log("Current URL:", url.toString());
+    console.log("URL parameters:", Object.fromEntries(url.searchParams));
+
+    const createNewSession = async () => {
+      try {
+        const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        console.log("Generated sessionId:", sessionId);
+        setSessionId(sessionId);
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const processId = urlParams.get('processId');
+        const mode = urlParams.get('mode') || 'chat';
+
+        console.log("URL Parameters:", {
+          processId,
+          mode
+        });
+
+        if (!processId) {
+          console.error("No processId provided");
+          setLoading(false);
+          setInitializing(false);
+          return;
+        }
+
+        setInteractionMode(mode);
+        console.log("Set interaction mode to:", mode);
+
+        const processes = await Process.filter({ id: processId });
+        console.log("Found processes:", processes);
+
+        if (processes.length > 0) {
+          const process = processes[0];
+          console.log("Selected process:", process);
+          setProcessName(process.name);
+
+          const sessionData = {
+            sessionId: sessionId,
+            processId: processId,
+            mode: mode,
+            startTime: new Date().toISOString(),
+            completed: false,
+            formData: {},
+            questions: []
+          };
+
+          console.log("Creating session with data:", sessionData);
+          await Session.create(sessionData);
+          console.log("Session created successfully");
+
+          // Load the form schema
+          if (process.formSchemaId || process.formAsset) {
+            const formId = process.formSchemaId || process.formAsset;
+            console.log("Loading form schema with ID:", formId);
+            await loadFormSchema(formId, mode);
+          } else {
+            console.error("No form schema associated with this process");
+            setLoading(false);
+            setInitializing(false);
+          }
+
+        } else {
+          console.error("Process not found:", processId);
+          setLoading(false);
+          setInitializing(false);
+        }
+      } catch (error) {
+        console.error("Error in createNewSession:", error);
+        setLoading(false);
+        setInitializing(false);
+      }
+    };
+
+    createNewSession();
+
+    // Initialize with a welcome message for chat/voice modes
+    if (interactionMode === 'chat' || interactionMode === 'voice') {
+      addMessage('Welcome! I\'ll help you fill out this form. Let\'s get started.', 'bot');
     }
-    
-    // Initialize with a welcome message
-    addMessage('Welcome to the form chat! I\'ll help you fill out this form.', 'bot');
-  }, [location.search]);
+  }, []);
 
   useEffect(() => {
     setMessages(getMessages());
@@ -72,446 +157,16 @@ export default function FormChat() {
     }
   }, [messages]);
 
-  const loadProcess = async (processId, mode) => {
-    try {
-      setLoading(true);
-      console.log("Loading process with ID:", processId, "in mode:", mode);
-      
-      // First try to get the process directly by ID
-      let processes = [];
-      try {
-        processes = await Process.filter({ id: processId });
-        console.log("Process filter result:", processes);
-      } catch (error) {
-        console.error("Error in Process.filter:", error);
-        // Try to get all processes and filter manually
-        try {
-          const allProcesses = await Process.list();
-          console.log("All processes:", allProcesses);
-          processes = allProcesses.filter(p => p.id === processId);
-          console.log("Filtered processes:", processes);
-        } catch (listError) {
-          console.error("Error in Process.list:", listError);
-        }
-      }
-      
-      if (processes.length === 0) {
-        console.error("Process not found, trying to get all processes");
-        try {
-          const allProcesses = await Process.list();
-          console.log("All available processes:", allProcesses);
-          
-          if (allProcesses.length > 0) {
-            // Use the first process as fallback
-            const fallbackProcess = allProcesses[0];
-            setProcessName(fallbackProcess.name || "Form Process");
-            console.log("Using fallback process:", fallbackProcess);
-            
-            if (fallbackProcess.formSchemaId || fallbackProcess.formAsset) {
-              const formId = fallbackProcess.formSchemaId || fallbackProcess.formAsset;
-              console.log("Loading form schema with ID:", formId);
-              loadForm(formId, mode);
-            } else {
-              console.error("No form schema associated with fallback process");
-              setLoading(false);
-              setInitializing(false);
-            }
-          } else {
-            console.error("No processes available");
-            setLoading(false);
-            setInitializing(false);
-          }
-        } catch (error) {
-          console.error("Error getting all processes:", error);
-          setLoading(false);
-          setInitializing(false);
-        }
-        return;
-      }
-      
-      const process = processes[0];
-      setProcessName(process.name || "Form Process");
-      
-      // Check for formSchemaId or formAsset
-      const formId = process.formSchemaId || process.formAsset;
-      if (formId) {
-        console.log("Loading form schema with ID:", formId);
-        loadForm(formId, mode);
-      } else {
-        console.error("No form schema associated with this process");
-        setLoading(false);
-        setInitializing(false);
-      }
-      
-      // Create a new session for this process
-      const newSessionId = `session_${Date.now()}`;
-      setSessionId(newSessionId);
-      
-      try {
-        console.log("Creating new session:", {
-          sessionId: newSessionId,
-          processId: processId,
-          mode: mode,
-          startTime: new Date().toISOString()
-        });
-        
-        await Session.create({
-          sessionId: newSessionId,
-          processId: processId,
-          mode: mode,
-          startTime: new Date().toISOString(),
-          completed: false,
-          formData: {}
-        });
-        
-        console.log("Session created successfully");
-      } catch (error) {
-        console.error("Error creating session:", error);
-      }
-      
-    } catch (error) {
-      console.error("Error loading process:", error);
-      setLoading(false);
-      setInitializing(false);
+  useEffect(() => {
+    if (interactionMode === 'voice') {
+      setVoiceActive(true);
     }
-  };
+  }, [interactionMode]);
 
-  const loadForm = async (formId, mode) => {
+  const loadFormSchema = async (formId, mode) => {
     try {
       setLoading(true);
       console.log("Loading form schema with ID:", formId, "in mode:", mode);
-      
-      // For testing purposes, use the sample CVUF data for chat and voice modes
-      if (mode === 'chat' || mode === 'voice') {
-        try {
-          // This is a sample CVUF file for testing
-          const sampleCvufData = {
-            form: {
-              accessibility: false,
-              actions: [],
-              approveData: {
-                enabled: false,
-                forceApproveBeforeShowingDownload: false,
-                toCloseForm: false,
-                popupObj: {
-                  errorMsg: "",
-                  fieldType: "",
-                  message: "",
-                  title: ""
-                },
-                submitIcon: ""
-              },
-              calculatedFields: [],
-              direction: "ltr",
-              expirationObj: {},
-              formCustomStyle: "",
-              formName: "Financial: Charge Dispute_NoRules",
-              globalVariables: [],
-              hintMsgProps: {
-                text: "",
-                hideOnScroll: false
-              },
-              isDownloadPDFLink: false,
-              isFormReadonly: false,
-              isPdfForm: false,
-              isSinglePage: false,
-              last_update: "2025-03-11T13:48:07.8",
-              logo: "",
-              logoAlignment: "center",
-              logoName: "",
-              logoUrl: "https://callvustudioproduction.s3.us-east-1.amazonaws.com/admin/callvu_logo_blue.svg",
-              notResizable: true,
-              otp: {
-                buttonText: "",
-                description: "",
-                emptyFieldValidation: "",
-                invalidFieldValidation: "",
-                isActive: false,
-                label: "",
-                logo: "",
-                logoName: "",
-                resendText: "",
-                serviceUrl: "",
-                title: "",
-                validResponse: false,
-                validateUrl: false,
-                redirectAfterSubmit: false,
-                redirectLink: "",
-                isAuth: false,
-                optionalFields: []
-              },
-              PDF: "",
-              redirectAfterSubmit: false,
-              redirectLink: "",
-              stepperType: "None",
-              steps: [
-                {
-                  stepName: "Review Account Activity",
-                  identifier: "step_m65o5e3p",
-                  buttonsConfig: {
-                    back: {
-                      className: "",
-                      isHidden: false,
-                      text: ""
-                    },
-                    next: {
-                      className: "",
-                      isHidden: false,
-                      text: ""
-                    },
-                    targetStep: "",
-                    isFirstNode: true
-                  },
-                  blocks: [
-                    {
-                      blockName: "Good morning, John",
-                      identifier: "block_m6tthkel",
-                      icon: "",
-                      rows: [
-                        {
-                          fields: []
-                        }
-                      ],
-                      style: {
-                        alignment: "",
-                        nobackground: false,
-                        noborders: false,
-                        size: "full"
-                      },
-                      templateID: 28,
-                      type: "regular"
-                    },
-                    {
-                      blockName: "Review Account Activity",
-                      identifier: "block_m65o5e3q",
-                      icon: "",
-                      rows: [
-                        {
-                          fields: [
-                            {
-                              className: "",
-                              clearable: false,
-                              hint: "",
-                              identifier: "radioinput_m65o5wr2",
-                              integrationID: "disputeTransaction",
-                              isHiddenInRuntime: false,
-                              label: "Select the transaction you would like to dispute",
-                              maskingViewer: "none",
-                              name: "editor.fields.radioinput",
-                              permission: "both",
-                              readOnly: false,
-                              required: true,
-                              tooltip: "",
-                              type: "radioInput",
-                              validations: [],
-                              width: "full",
-                              items: [
-                                {
-                                  label: "$65.25 Zippy's Gas 2/5/2025",
-                                  value: "$65.25 Zippy's Gas 2/5/2025"
-                                },
-                                {
-                                  label: "$27.34 Zuzu's Flowers 2/4/2025",
-                                  value: "$27.34 Zuzu's Flowers 2/4/2025"
-                                },
-                                {
-                                  label: "$45.78 Lou's Barber 2/3/2025",
-                                  value: "$45.78 Lou's Barber 2/3/2025"
-                                },
-                                {
-                                  label: "$14.56 Claire's Coffee 2/2/2025",
-                                  value: "$14.56 Claire's Coffee 2/2/2025"
-                                },
-                                {
-                                  label: "$31.45 Bean's Toys 2/1/2025",
-                                  value: "$31.45 Bean's Toys 2/1/2025"
-                                }
-                              ],
-                              columnID: 0,
-                              innertype: "radioOutlinedInput"
-                            }
-                          ]
-                        }
-                      ],
-                      style: {
-                        alignment: "",
-                        nobackground: false,
-                        noborders: false,
-                        size: "full",
-                        background: "altBackground"
-                      },
-                      isCard: false,
-                      className: "small-radius px-2",
-                      type: "regular"
-                    }
-                  ],
-                  style: {
-                    alignment: ""
-                  },
-                  imageUrl: "https://callvustudioproduction.s3.amazonaws.com/e499d048-2b4c-4507-8286-73b641432eb0/flowScreenShots/aws.p.null-financial:_charge_dispute-review_account_activity.png?AWSAccessKeyId=AKIATQPD7AOVTUGBQ5YO&Expires=1898347368&Signature=QjfHLnIiXi%2FJ7NTq7VrQW0Zi2vg%3D",
-                  text: "Review Account Activity"
-                },
-                {
-                  blocks: [
-                    {
-                      blockName: "",
-                      identifier: "block_m65o8wad",
-                      icon: "",
-                      rows: [
-                        {
-                          fields: [
-                            {
-                              className: "",
-                              clearable: false,
-                              hint: "",
-                              identifier: "paragraph_m6fi644y",
-                              integrationID: "paragraph_m6fi644x",
-                              isHiddenInRuntime: false,
-                              label: "",
-                              maskingViewer: "none",
-                              name: "editor.fields.paragraph",
-                              permission: "both",
-                              readOnly: false,
-                              required: false,
-                              tooltip: "",
-                              type: "paragraph",
-                              validations: [],
-                              width: "full",
-                              editedParagraph: "<h4>Dispute Transaction @#disputeTransaction@#</h4><p><br></p><p><br></p>",
-                              columnID: 0
-                            }
-                          ]
-                        },
-                        {
-                          fields: [
-                            {
-                              className: "",
-                              clearable: false,
-                              hint: "",
-                              identifier: "radioinput_m689cv4w",
-                              integrationID: "disputeReason",
-                              isHiddenInRuntime: false,
-                              label: "Please select the reason you are disputing this charge",
-                              maskingViewer: "none",
-                              name: "editor.fields.radioinput",
-                              permission: "both",
-                              readOnly: false,
-                              required: true,
-                              tooltip: "",
-                              type: "radioInput",
-                              validations: [],
-                              width: "full",
-                              items: [
-                                {
-                                  label: "Didn't make this purchase",
-                                  value: "Did not make this purchase"
-                                },
-                                {
-                                  label: "Incorrect amount charged",
-                                  value: "Incorrect amount charged"
-                                },
-                                {
-                                  label: "Didn't receive order",
-                                  value: "Did not receive order"
-                                },
-                                {
-                                  label: "Returned items",
-                                  value: "Returned items"
-                                },
-                                {
-                                  label: "Other",
-                                  value: "Other"
-                                }
-                              ],
-                              columnID: 0,
-                              innertype: "radioOutlinedInput"
-                            }
-                          ]
-                        }
-                      ],
-                      style: {
-                        alignment: "",
-                        nobackground: false,
-                        noborders: false,
-                        size: "full",
-                        background: "altBackground"
-                      },
-                      isCard: true,
-                      type: "regular"
-                    }
-                  ],
-                  buttonsConfig: {
-                    back: {
-                      className: "",
-                      isHidden: false,
-                      text: ""
-                    },
-                    next: {
-                      className: "",
-                      isHidden: false,
-                      text: ""
-                    },
-                    targetStep: ""
-                  },
-                  errors: [],
-                  identifier: "step_m65o8wac",
-                  stepName: "Dispute Details",
-                  isDisplayPdfPreview: false,
-                  imageUrl: "https://callvustudiodev.s3.amazonaws.com/921d5eec-7989-4b28-9744-bca7f40121ec/flowScreenShots/aws.d.2000028-financial:_charge_dispute_norules-dispute_details.png?AWSAccessKeyId=AKIA5FTY6Z7W6WAIGADC&Expires=1899919417&Signature=JpEdQkmH%2BgZptqkq%2FOO2cv%2BOIkU%3D",
-                  text: "1st Step_Copy1",
-                  style: {
-                    alignment: ""
-                  },
-                  hideFooter: false
-                }
-              ],
-              templateType: 3,
-              theme: {
-                primary: "#39a6a4",
-                secondary: "#eaf4f2",
-                font: "Inter-Regular",
-                text: "#3b3b3b",
-                altText: "#000",
-                background: "#fff",
-                altBackground: "#f7f7f7",
-                headerBackground: "#fff",
-                neutral: "#fff",
-                link: "#00f",
-                success: "#008000",
-                danger: "#f00",
-                warning: "#ec9d04",
-                dark: "hsl(272 23% 14%)",
-                white: "#fff",
-                transparent: "transparent"
-              },
-              title: "Charge Dispute",
-              otpTemplateID: "",
-              isOTPEnabled: false,
-              otpVersion: 2,
-              formVersion: "10.2.79",
-              lastModified: "2025-03-13T09:53:29.641+00:00",
-              newRules: [],
-              Timestamp: "2025-03-11T13:48:00",
-              TimeModified: "2025-03-13T09:53:29.641+00:00",
-              style: "",
-              id: null
-            }
-          };
-          
-          console.log("Using sample CVUF data for chat/voice mode");
-          setCvufData(sampleCvufData);
-          
-          // Parse the CVUF data using the specialized parser
-          const parsedSchema = parseCVUFSchema(sampleCvufData);
-          console.log("Parsed CVUF schema:", parsedSchema);
-          
-          // Initialize the form with the parsed CVUF schema
-          initializeFormFromCVUF(parsedSchema);
-          return;
-        } catch (error) {
-          console.error("Error processing sample CVUF data:", error);
-        }
-      }
       
       // Check if formId is a complex object (like a file asset) instead of a simple string
       if (typeof formId === 'object' && formId !== null) {
@@ -526,21 +181,8 @@ export default function FormChat() {
               const formData = await response.json();
               console.log("Successfully loaded form data from URL:", formData);
               
-              // Store the CVUF data
-              setCvufData(formData);
-              
-              // Use the specialized CVUF parser for chat and voice modes
-              if (mode === 'chat' || mode === 'voice') {
-                const parsedSchema = parseCVUFSchema(formData);
-                console.log("Parsed CVUF schema:", parsedSchema);
-                initializeFormFromCVUF(parsedSchema);
-                return;
-              }
-              
-              // For other modes, use the standard form parser
-              const parsedForm = parseFormSchema(formData);
-              console.log("Parsed form schema:", parsedForm);
-              initializeFormFromParsedSchema(parsedForm);
+              // Process the CVUF data
+              processFormSchema(formData);
               return;
             } else {
               console.error("Failed to load form data from URL:", response.status);
@@ -565,21 +207,8 @@ export default function FormChat() {
               const formData = await response.json();
               console.log("Successfully loaded form data from file:", formData);
               
-              // Store the CVUF data
-              setCvufData(formData);
-              
-              // Use the specialized CVUF parser for chat and voice modes
-              if (mode === 'chat' || mode === 'voice') {
-                const parsedSchema = parseCVUFSchema(formData);
-                console.log("Parsed CVUF schema:", parsedSchema);
-                initializeFormFromCVUF(parsedSchema);
-                return;
-              }
-              
-              // For other modes, use the standard form parser
-              const parsedForm = parseFormSchema(formData);
-              console.log("Parsed form schema:", parsedForm);
-              initializeFormFromParsedSchema(parsedForm);
+              // Process the CVUF data
+              processFormSchema(formData);
               return;
             } else {
               console.error("Failed to load form data from file:", response.status);
@@ -587,53 +216,7 @@ export default function FormChat() {
           } catch (error) {
             console.error("Error loading form data from file:", error);
           }
-          
-          // If loading the actual file failed, create a mock schema as fallback
-          // but only if we're not in chat or voice mode
-          if (mode !== 'chat' && mode !== 'voice') {
-            const mockSchema = createMockFormSchema(formId.name);
-            console.log("Created mock form schema:", mockSchema);
-            initializeForm(mockSchema);
-            return;
-          } else {
-            // For chat or voice mode, we need to use the actual CVUF file
-            console.error("Failed to load CVUF file for chat/voice mode");
-            toast({
-              title: "Error",
-              description: "Failed to load the form for chat/voice mode. Please try again or contact support.",
-              variant: "destructive"
-            });
-            setLoading(false);
-            setInitializing(false);
-            return;
-          }
         }
-        
-        // If we can't extract a usable ID, try to get all form schemas
-        try {
-          const allFormSchemas = await FormSchema.list();
-          console.log("All available form schemas:", allFormSchemas);
-          
-          if (allFormSchemas.length > 0) {
-            // Use the first form schema as fallback
-            const fallbackSchema = allFormSchemas[0];
-            console.log("Using fallback form schema:", fallbackSchema);
-            initializeForm(fallbackSchema);
-          } else {
-            console.error("No form schemas available");
-            // Create a generic form schema as last resort
-            const genericSchema = createGenericFormSchema();
-            console.log("Created generic form schema:", genericSchema);
-            initializeForm(genericSchema);
-          }
-        } catch (error) {
-          console.error("Error getting all form schemas:", error);
-          // Create a generic form schema as last resort
-          const genericSchema = createGenericFormSchema();
-          console.log("Created generic form schema:", genericSchema);
-          initializeForm(genericSchema);
-        }
-        return;
       }
       
       // If formId is a string, try to get the form schema directly
@@ -644,21 +227,52 @@ export default function FormChat() {
         if (formSchemas.length > 0) {
           const schema = formSchemas[0];
           console.log("Found form schema:", schema);
-          initializeForm(schema);
+          
+          // If schema has a URL, try to load the actual CVUF file
+          if (schema.url) {
+            try {
+              const response = await fetch(schema.url);
+              if (response.ok) {
+                const formData = await response.json();
+                console.log("Successfully loaded form data from schema URL:", formData);
+                
+                // Process the CVUF data
+                processFormSchema(formData);
+                return;
+              }
+            } catch (error) {
+              console.error("Error loading form data from schema URL:", error);
+            }
+          }
+          
+          // If schema has content, use it directly
+          if (schema.content) {
+            try {
+              const formData = typeof schema.content === 'string' 
+                ? JSON.parse(schema.content) 
+                : schema.content;
+              
+              console.log("Using form data from schema content:", formData);
+              
+              // Process the CVUF data
+              processFormSchema(formData);
+              return;
+            } catch (error) {
+              console.error("Error processing schema content:", error);
+            }
+          }
         } else {
           console.error("Form schema not found with ID:", formId);
-          // Create a generic form schema as fallback
-          const genericSchema = createGenericFormSchema();
-          console.log("Created generic form schema:", genericSchema);
-          initializeForm(genericSchema);
         }
       } catch (error) {
         console.error("Error getting form schema:", error);
-        // Create a generic form schema as fallback
-        const genericSchema = createGenericFormSchema();
-        console.log("Created generic form schema:", genericSchema);
-        initializeForm(genericSchema);
       }
+      
+      // If we reach here, we couldn't load the form schema
+      console.error("Failed to load form schema");
+      setLoading(false);
+      setInitializing(false);
+      
     } catch (error) {
       console.error("Error loading form:", error);
       setLoading(false);
@@ -666,272 +280,343 @@ export default function FormChat() {
     }
   };
 
-  const initializeFormFromCVUF = (parsedSchema) => {
+  const processFormSchema = (schemaData) => {
     try {
-      console.log("Initializing form from CVUF schema:", parsedSchema);
+      console.log("Processing form schema:", schemaData);
       
-      if (!parsedSchema || !parsedSchema.steps) {
-        console.error("Invalid CVUF schema");
+      if (!schemaData || !schemaData.form) {
+        console.error("Invalid schema format - missing 'form' property");
         setLoading(false);
         setInitializing(false);
         return;
       }
       
-      // Set the form schema
-      setFormSchema({
-        name: parsedSchema.metadata?.name || "CVUF Form",
-        description: parsedSchema.metadata?.description || "",
-        sections: parsedSchema.steps
-      });
+      setFormSchema(schemaData);
+      const {
+        extractedFields,
+        extractedSections,
+        extractedVisibilityRules,
+        extractedUpdatingRules,
+        extractedGlobalVars,
+        initialBlockVisibility,
+        initialFieldVisibility
+      } = extractDataFromSchema(schemaData);
       
-      // Set the sections based on steps
-      setSections(parsedSchema.steps);
+      console.log(`Extracted ${extractedFields.length} fields and ${extractedSections.length} sections`);
       
-      // Set the current section to the first one
-      if (parsedSchema.steps.length > 0) {
-        setCurrentSection(parsedSchema.steps[0]);
-      }
-      
-      // Initialize form data
-      const initialFormData = {};
-      if (parsedSchema.fields) {
-        parsedSchema.fields.forEach(field => {
-          initialFormData[field.id] = '';
-        });
-      }
-      setFormData(initialFormData);
-      
-      setLoading(false);
-      setInitializing(false);
-    } catch (error) {
-      console.error("Error initializing form from CVUF schema:", error);
-      setLoading(false);
-      setInitializing(false);
-    }
-  };
-
-  const initializeFormFromParsedSchema = (parsedSchema) => {
-    try {
-      console.log("Initializing form from parsed schema:", parsedSchema);
-      
-      if (!parsedSchema || !parsedSchema.steps) {
-        console.error("Invalid parsed schema");
-        setLoading(false);
-        setInitializing(false);
-        return;
-      }
-      
-      // Set the form schema
-      setFormSchema(parsedSchema);
-      
-      // Set the sections based on steps
-      setSections(parsedSchema.steps);
-      
-      // Set the current section to the first one
-      if (parsedSchema.steps.length > 0) {
-        setCurrentSection(parsedSchema.steps[0]);
-      }
-      
-      // Initialize form data
-      const initialFormData = {};
-      if (parsedSchema.fields) {
-        parsedSchema.fields.forEach(field => {
-          initialFormData[field.id] = '';
-        });
-      }
-      setFormData(initialFormData);
-      
-      setLoading(false);
-      setInitializing(false);
-    } catch (error) {
-      console.error("Error initializing form from parsed schema:", error);
-      setLoading(false);
-      setInitializing(false);
-    }
-  };
-
-  const initializeForm = (schema) => {
-    try {
-      console.log("Initializing form with schema:", schema);
-      
-      if (!schema) {
-        console.error("Invalid schema");
-        setLoading(false);
-        setInitializing(false);
-        return;
-      }
-      
-      // Set the form schema
-      setFormSchema(schema);
-      
-      // Extract sections from the schema
-      let extractedSections = [];
-      if (schema.sections) {
-        extractedSections = schema.sections;
-      } else if (schema.form && schema.form.sections) {
-        extractedSections = schema.form.sections;
-      } else if (schema.form && schema.form.steps) {
-        // Convert steps to sections
-        extractedSections = schema.form.steps.map(step => ({
-          id: step.identifier || `section_${step.stepName}`,
-          name: step.stepName || 'Section',
-          fields: []
-        }));
-      }
-      
-      // Set the sections
+      setFields(extractedFields);
       setSections(extractedSections);
+      setVisibilityRules(extractedVisibilityRules);
+      setUpdatingRules(extractedUpdatingRules);
+      setGlobalVariables(extractedGlobalVars);
+      setBlockVisibility(initialBlockVisibility);
+      setFieldVisibility(initialFieldVisibility);
       
-      // Set the current section to the first one
-      if (extractedSections.length > 0) {
-        setCurrentSection(extractedSections[0]);
-      }
+      setFormTitle(schemaData.form.formName || schemaData.form.title || "Form");
+      setFormLoaded(true);
       
-      // Initialize form data
-      const initialFormData = {};
-      if (schema.fields) {
-        schema.fields.forEach(field => {
-          initialFormData[field.id] = '';
-        });
-      }
-      setFormData(initialFormData);
-      
-      setLoading(false);
-      setInitializing(false);
-    } catch (error) {
-      console.error("Error initializing form:", error);
-      setLoading(false);
-      setInitializing(false);
-    }
-  };
-
-  const handleInputChange = (e) => {
-    setUserInput(e.target.value);
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!userInput.trim()) return;
-    
-    // Add user message
-    addMessage(userInput, 'user');
-    
-    // Process user input
-    processUserInput(userInput);
-    
-    // Clear input
-    setUserInput('');
-  };
-
-  const processUserInput = (input) => {
-    // Simple bot response for now
-    setTimeout(() => {
-      // If we have CVUF data, use it to generate a more contextual response
-      if (cvufData && cvufData.form) {
-        const formName = cvufData.form.formName || cvufData.form.title || "this form";
+      // Set the current field to the first visible field
+      if (extractedFields.length > 0) {
+        setCurrentFieldIndex(0);
         
-        // Check if input contains keywords related to transactions or disputes
-        if (input.toLowerCase().includes('transaction') || 
-            input.toLowerCase().includes('dispute') || 
-            input.toLowerCase().includes('charge')) {
-          
-          addMessage(`I can help you with disputing a transaction. Please select the transaction you would like to dispute from your recent account activity.`, 'bot');
-          
-          // If we have transaction options in the CVUF data, show them
-          const transactionField = findFieldInCVUF(cvufData, 'disputeTransaction');
-          if (transactionField && transactionField.items && transactionField.items.length > 0) {
-            let transactionsMessage = "Here are your recent transactions:\n";
-            transactionField.items.forEach((item, index) => {
-              transactionsMessage += `${index + 1}. ${item.label}\n`;
-            });
-            transactionsMessage += "\nWhich one would you like to dispute? (Please enter the number)";
-            
+        // For chat/voice modes, send the first question
+        if (interactionMode === 'chat' || interactionMode === 'voice') {
+          const firstField = extractedFields[0];
+          if (firstField) {
             setTimeout(() => {
-              addMessage(transactionsMessage, 'bot');
+              const questionText = generateQuestionForField(firstField);
+              addMessage(questionText, 'bot');
+              
+              if (interactionMode === 'voice') {
+                setCurrentReadingText(questionText);
+              }
             }, 1000);
           }
-          
-          return;
         }
-        
-        // Check if input is a number and might be selecting a transaction
-        const inputNum = parseInt(input);
-        if (!isNaN(inputNum) && inputNum > 0) {
-          const transactionField = findFieldInCVUF(cvufData, 'disputeTransaction');
-          if (transactionField && transactionField.items && transactionField.items.length >= inputNum) {
-            const selectedTransaction = transactionField.items[inputNum - 1];
-            
-            addMessage(`You've selected: ${selectedTransaction.label}. What is the reason for disputing this transaction?`, 'bot');
-            
-            // If we have dispute reason options in the CVUF data, show them
-            const reasonField = findFieldInCVUF(cvufData, 'disputeReason');
-            if (reasonField && reasonField.items && reasonField.items.length > 0) {
-              let reasonsMessage = "Please select one of the following reasons:\n";
-              reasonField.items.forEach((item, index) => {
-                reasonsMessage += `${index + 1}. ${item.label}\n`;
+      }
+      
+      setLoading(false);
+      setInitializing(false);
+    } catch (error) {
+      console.error("Error processing form schema:", error);
+      setLoading(false);
+      setInitializing(false);
+    }
+  };
+
+  const extractDataFromSchema = (schema) => {
+    console.log("Extracting schema data...");
+
+    const extractedFields = [];
+    const extractedSections = [];
+    const extractedVisibilityRules = [];
+    const extractedUpdatingRules = [];
+    const extractedGlobalVars = {};
+    const initialBlockVisibility = {};
+    const initialFieldVisibility = {};
+
+    try {
+      if (schema && schema.form) {
+        if (Array.isArray(schema.form.globalVariables)) {
+          schema.form.globalVariables.forEach(variable => {
+            if (variable && variable.integrationID) {
+              extractedGlobalVars[variable.integrationID] = variable.value || '';
+            }
+          });
+        }
+
+        if (Array.isArray(schema.form.newRules)) {
+          schema.form.newRules.forEach(rule => {
+            if (rule && rule.type) {
+              if (rule.type === "visibility") {
+                extractedVisibilityRules.push(rule);
+              } else if (rule.type === "updating") {
+                extractedUpdatingRules.push(rule);
+              }
+            }
+          });
+        }
+
+        if (Array.isArray(schema.form.steps)) {
+          schema.form.steps.forEach((step, stepIndex) => {
+            if (!step) return;
+
+            const sectionName = step.stepName || `Section ${stepIndex + 1}`;
+            const nextStep = stepIndex < schema.form.steps.length - 1
+              ? (schema.form.steps[stepIndex + 1] ? schema.form.steps[stepIndex + 1].stepName : null)
+              : null;
+
+            extractedSections.push({
+              id: sectionName,
+              identifier: step.identifier || '',
+              next: nextStep
+            });
+
+            if (!Array.isArray(step.blocks)) return;
+
+            step.blocks.forEach(block => {
+              if (!block) return;
+
+              const isHidden = block.hidden === true || block.isHiddenInRuntime === true;
+              initialBlockVisibility[block.identifier] = !isHidden;
+
+              if (block.blockName && !isHidden) {
+                extractedFields.push({
+                  id: block.identifier + "_title",
+                  label: block.blockName,
+                  type: "paragraph",
+                  required: false,
+                  section: sectionName,
+                  stepIdentifier: step.identifier || '',
+                  integrationID: block.identifier + "_title",
+                  blockId: block.identifier,
+                  hidden: isHidden,
+                  properties: {
+                    text: block.blockName,
+                    editedParagraph: block.blockName
+                  }
+                });
+              }
+
+              if (!Array.isArray(block.rows) || block.rows.length === 0) return;
+
+              block.rows.forEach(row => {
+                if (!row || !Array.isArray(row.fields)) return;
+
+                row.fields.forEach(field => {
+                  if (!field || !field.type || !field.identifier) return;
+
+                  const fieldObj = {
+                    id: field.identifier,
+                    label: field.label || "",
+                    type: field.type.toLowerCase(),
+                    required: !!field.required,
+                    section: sectionName,
+                    stepIdentifier: step.identifier || '',
+                    integrationID: field.integrationID || field.identifier,
+                    blockId: block.identifier,
+                    blockName: block.blockName || "",
+                    hidden: isHidden || field.isHiddenInRuntime === true,
+                    properties: field
+                  };
+
+                  extractedFields.push(fieldObj);
+                  initialFieldVisibility[field.identifier] = !isHidden && !field.isHiddenInRuntime;
+                });
               });
-              
-              setTimeout(() => {
-                addMessage(reasonsMessage, 'bot');
-              }, 1000);
-            }
-            
-            return;
-          }
+            });
+          });
         }
-        
-        // Default response for the form context
-        addMessage(`I'm here to help you with ${formName}. You can ask me questions about disputing a transaction or select from the options provided.`, 'bot');
-        return;
       }
-      
-      // Generic response if no CVUF data
-      addMessage("I've received your input. Let me process that for you.", 'bot');
-    }, 500);
+
+      console.log(`Extracted ${extractedFields.length} fields and ${extractedSections.length} sections`);
+
+    } catch (error) {
+      console.error("Error during schema extraction:", error);
+    }
+
+    return {
+      extractedFields,
+      extractedSections,
+      extractedVisibilityRules,
+      extractedUpdatingRules,
+      extractedGlobalVars,
+      initialBlockVisibility,
+      initialFieldVisibility
+    };
   };
 
-  // Helper function to find a field in the CVUF data by integration ID
-  const findFieldInCVUF = (cvufData, integrationId) => {
-    if (!cvufData || !cvufData.form || !cvufData.form.steps) return null;
+  const generateQuestionForField = (field) => {
+    if (!field) return "";
+
+    // Skip paragraph fields in chat/voice mode
+    if (field.type === "paragraph") {
+      return field.properties?.text || field.properties?.editedParagraph || field.label || "";
+    }
+
+    let question = field.label || `Please provide ${field.id}`;
     
-    for (const step of cvufData.form.steps) {
-      if (!step.blocks) continue;
-      
-      for (const block of step.blocks) {
-        if (!block.rows) continue;
-        
-        for (const row of block.rows) {
-          if (!row.fields) continue;
-          
-          for (const field of row.fields) {
-            if (field.integrationID === integrationId) {
-              return field;
-            }
-          }
+    // Add required indicator
+    if (field.required) {
+      question += " (required)";
+    }
+
+    // Add field-specific instructions
+    switch (field.type) {
+      case "radioinput":
+      case "radio":
+        if (field.properties?.items && Array.isArray(field.properties.items)) {
+          question += "\nOptions:";
+          field.properties.items.forEach((item, index) => {
+            question += `\n${index + 1}. ${item.label}`;
+          });
         }
-      }
+        break;
+      case "dropdowninput":
+      case "select":
+        if (field.properties?.items && Array.isArray(field.properties.items)) {
+          question += "\nOptions:";
+          field.properties.items.forEach((item, index) => {
+            question += `\n${index + 1}. ${item.label}`;
+          });
+        }
+        break;
+      case "dateinput":
+      case "date":
+        question += " (Please provide a date in MM/DD/YYYY format)";
+        break;
+      case "signaturepad":
+      case "signature":
+        question += " (Please type 'sign' to open the signature pad)";
+        break;
+      default:
+        break;
+    }
+
+    return question;
+  };
+
+  const getCurrentField = () => {
+    if (currentFieldIndex < 0 || currentFieldIndex >= fields.length) {
+      return null;
     }
     
-    return null;
+    return fields[currentFieldIndex];
   };
 
-  const handleFieldChange = (fieldId, value) => {
-    setFormData(prev => ({
+  const moveToNextField = () => {
+    let nextIndex = currentFieldIndex + 1;
+    
+    // Skip hidden fields and paragraph fields in chat/voice mode
+    while (
+      nextIndex < fields.length && 
+      (fields[nextIndex].hidden || 
+       !fieldVisibility[fields[nextIndex].id] ||
+       (interactionMode !== 'form' && fields[nextIndex].type === 'paragraph'))
+    ) {
+      nextIndex++;
+    }
+    
+    if (nextIndex < fields.length) {
+      setCurrentFieldIndex(nextIndex);
+      
+      // For chat/voice modes, send the next question
+      if (interactionMode === 'chat' || interactionMode === 'voice') {
+        const nextField = fields[nextIndex];
+        const questionText = generateQuestionForField(nextField);
+        addMessage(questionText, 'bot');
+        
+        if (interactionMode === 'voice') {
+          setCurrentReadingText(questionText);
+        }
+      }
+    } else {
+      // All fields completed
+      handleFormCompletion();
+    }
+  };
+
+  const handleFormResponse = (value, source = 'manual') => {
+    const currentField = getCurrentField();
+    if (!currentField) return;
+
+    console.log(`Processing response for field ${currentField.id}:`, value, `(source: ${source})`);
+
+    // Handle signature fields
+    if ((currentField.type === 'signature' || currentField.type === 'signatureinput' ||
+      currentField.type === 'signaturepad') && value === 'signature_requested') {
+      // Handle signature request
+      return;
+    }
+
+    const newFormData = { ...formData };
+    newFormData[currentField.id] = value;
+    setFormData(newFormData);
+
+    // Mark field as answered
+    setAnsweredFields(prev => ({
       ...prev,
-      [fieldId]: value
+      [currentField.id]: true
     }));
-  };
 
-  const handleSectionChange = (sectionId) => {
-    const section = sections.find(s => s.id === sectionId);
-    if (section) {
-      setCurrentSection(section);
+    // For chat/voice modes, add the user's response as a message
+    if (interactionMode === 'chat' || interactionMode === 'voice') {
+      let displayValue = value;
+      
+      // Format the display value based on field type
+      if (currentField.type === 'radioinput' || currentField.type === 'radio') {
+        if (currentField.properties?.items && Array.isArray(currentField.properties.items)) {
+          const selectedItem = currentField.properties.items.find(item => item.value === value);
+          if (selectedItem) {
+            displayValue = selectedItem.label;
+          }
+        }
+      }
+      
+      addMessage(String(displayValue), 'user');
     }
+
+    // Process any updating rules
+    if (updatingRules.length > 0) {
+      // Process rules logic here
+    }
+
+    // Move to the next field
+    moveToNextField();
   };
 
-  const handleFormSubmit = async () => {
+  const handleFormCompletion = async () => {
     try {
       setLoading(true);
+      
+      // For chat/voice modes, send a completion message
+      if (interactionMode === 'chat' || interactionMode === 'voice') {
+        addMessage("Thank you for completing the form! Your responses have been submitted.", 'bot');
+        
+        if (interactionMode === 'voice') {
+          setCurrentReadingText("Thank you for completing the form! Your responses have been submitted.");
+        }
+      }
       
       // Update session with form data and completion status
       if (sessionId) {
@@ -957,6 +642,96 @@ export default function FormChat() {
         variant: "destructive"
       });
     }
+  };
+
+  const handleInputChange = (e) => {
+    setUserInput(e.target.value);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!userInput.trim()) return;
+    
+    const currentField = getCurrentField();
+    if (!currentField) return;
+    
+    // Process the user input based on the current field type
+    let processedValue = userInput;
+    
+    if (currentField.type === 'radioinput' || currentField.type === 'radio') {
+      if (currentField.properties?.items && Array.isArray(currentField.properties.items)) {
+        // Check if input is a number (option index)
+        const optionIndex = parseInt(userInput) - 1;
+        if (!isNaN(optionIndex) && optionIndex >= 0 && optionIndex < currentField.properties.items.length) {
+          processedValue = currentField.properties.items[optionIndex].value;
+        } else {
+          // Check if input matches any option label or value
+          const matchedOption = currentField.properties.items.find(
+            item => item.label.toLowerCase() === userInput.toLowerCase() || 
+                   item.value.toLowerCase() === userInput.toLowerCase()
+          );
+          
+          if (matchedOption) {
+            processedValue = matchedOption.value;
+          }
+        }
+      }
+    } else if (currentField.type === 'signaturepad' || currentField.type === 'signature') {
+      if (userInput.toLowerCase() === 'sign') {
+        processedValue = 'signature_requested';
+      }
+    }
+    
+    // Handle the form response
+    handleFormResponse(processedValue);
+    
+    // Clear input
+    setUserInput('');
+  };
+
+  const handleSpeechRecognized = (text) => {
+    if (!text || !text.trim()) return;
+    
+    setUserInput(text);
+    
+    // Auto-submit after voice recognition
+    setTimeout(() => {
+      const currentField = getCurrentField();
+      if (!currentField) return;
+      
+      // Process the user input based on the current field type
+      let processedValue = text;
+      
+      if (currentField.type === 'radioinput' || currentField.type === 'radio') {
+        if (currentField.properties?.items && Array.isArray(currentField.properties.items)) {
+          // Check if input is a number (option index)
+          const optionIndex = parseInt(text) - 1;
+          if (!isNaN(optionIndex) && optionIndex >= 0 && optionIndex < currentField.properties.items.length) {
+            processedValue = currentField.properties.items[optionIndex].value;
+          } else {
+            // Check if input matches any option label or value
+            const matchedOption = currentField.properties.items.find(
+              item => item.label.toLowerCase() === text.toLowerCase() || 
+                     item.value.toLowerCase() === text.toLowerCase()
+            );
+            
+            if (matchedOption) {
+              processedValue = matchedOption.value;
+            }
+          }
+        }
+      } else if (currentField.type === 'signaturepad' || currentField.type === 'signature') {
+        if (text.toLowerCase() === 'sign') {
+          processedValue = 'signature_requested';
+        }
+      }
+      
+      // Handle the form response
+      handleFormResponse(processedValue, 'voice');
+      
+      // Clear input
+      setUserInput('');
+    }, 500);
   };
 
   const handleRatingSubmit = async () => {
@@ -988,123 +763,6 @@ export default function FormChat() {
         variant: "destructive"
       });
     }
-  };
-
-  // Create a mock form schema based on the file name
-  const createMockFormSchema = (fileName) => {
-    // Extract a readable name from the file name
-    let formName = fileName.replace(/[_\-.]/g, ' ').replace(/\s+/g, ' ').trim();
-    
-    // Check if it's a Financial Charge Dispute form
-    if (fileName.toLowerCase().includes('financial') && fileName.toLowerCase().includes('charge') && fileName.toLowerCase().includes('dispute')) {
-      return {
-        id: 'financial-charge-dispute',
-        name: 'Financial Charge Dispute Form',
-        description: 'Form for disputing financial charges',
-        sections: [
-          {
-            id: 'dispute_information',
-            name: 'Dispute Information',
-            fields: [
-              { id: 'account_number', name: 'Account Number', type: 'text', required: true },
-              { id: 'transaction_date', name: 'Transaction Date', type: 'date', required: true },
-              { id: 'transaction_amount', name: 'Transaction Amount', type: 'number', required: true },
-              { id: 'merchant_name', name: 'Merchant Name', type: 'text', required: true }
-            ]
-          },
-          {
-            id: 'dispute_reason',
-            name: 'Dispute Reason',
-            fields: [
-              { id: 'dispute_type', name: 'Dispute Type', type: 'select', options: ['Unauthorized Charge', 'Duplicate Charge', 'Incorrect Amount', 'Service Not Received', 'Other'], required: true },
-              { id: 'dispute_description', name: 'Dispute Description', type: 'textarea', required: true },
-              { id: 'contacted_merchant', name: 'Have you contacted the merchant?', type: 'radio', options: ['Yes', 'No'], required: true }
-            ]
-          },
-          {
-            id: 'supporting_documents',
-            name: 'Supporting Documents',
-            fields: [
-              { id: 'has_receipt', name: 'Do you have a receipt?', type: 'radio', options: ['Yes', 'No'], required: true },
-              { id: 'has_correspondence', name: 'Do you have correspondence with the merchant?', type: 'radio', options: ['Yes', 'No'], required: true },
-              { id: 'additional_comments', name: 'Additional Comments', type: 'textarea', required: false }
-            ]
-          },
-          {
-            id: 'confirmation',
-            name: 'Confirmation',
-            fields: [
-              { id: 'confirm_accurate', name: 'I confirm that the information provided is accurate', type: 'checkbox', required: true },
-              { id: 'signature', name: 'Signature', type: 'text', required: true }
-            ]
-          }
-        ]
-      };
-    }
-    
-    // Generic form for other file names
-    return {
-      id: 'generic-form',
-      name: formName || 'Form',
-      description: 'Form generated from file',
-      sections: [
-        {
-          id: 'personal_information',
-          name: 'Personal Information',
-          fields: [
-            { id: 'full_name', name: 'Full Name', type: 'text', required: true },
-            { id: 'email', name: 'Email Address', type: 'email', required: true },
-            { id: 'phone', name: 'Phone Number', type: 'tel', required: false }
-          ]
-        },
-        {
-          id: 'form_details',
-          name: 'Form Details',
-          fields: [
-            { id: 'subject', name: 'Subject', type: 'text', required: true },
-            { id: 'message', name: 'Message', type: 'textarea', required: true },
-            { id: 'priority', name: 'Priority', type: 'select', options: ['Low', 'Medium', 'High'], required: true }
-          ]
-        }
-      ]
-    };
-  };
-
-  // Create a generic form schema as a last resort
-  const createGenericFormSchema = () => {
-    return {
-      id: 'generic-form',
-      name: 'Generic Form',
-      description: 'A generic form for data collection',
-      sections: [
-        {
-          id: 'personal_information',
-          name: 'Personal Information',
-          fields: [
-            { id: 'full_name', name: 'Full Name', type: 'text', required: true },
-            { id: 'email', name: 'Email Address', type: 'email', required: true },
-            { id: 'phone', name: 'Phone Number', type: 'tel', required: false },
-            { id: 'date_of_birth', name: 'Date of Birth', type: 'date', required: false }
-          ]
-        },
-        {
-          id: 'contact_preferences',
-          name: 'Contact Preferences',
-          fields: [
-            { id: 'preferred_contact', name: 'Preferred Contact Method', type: 'select', options: ['Email', 'Phone', 'Mail'], required: true },
-            { id: 'receive_updates', name: 'Would you like to receive updates?', type: 'radio', options: ['Yes', 'No'], required: true }
-          ]
-        },
-        {
-          id: 'additional_information',
-          name: 'Additional Information',
-          fields: [
-            { id: 'comments', name: 'Comments', type: 'textarea', required: false },
-            { id: 'terms_accepted', name: 'I accept the terms and conditions', type: 'checkbox', required: true }
-          ]
-        }
-      ]
-    };
   };
 
   if (loading && initializing) {
@@ -1164,7 +822,7 @@ export default function FormChat() {
       <div className="container mx-auto py-10 px-4 max-w-4xl">
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>{cvufData?.form?.formName || cvufData?.form?.title || processName}</CardTitle>
+            <CardTitle>{formTitle}</CardTitle>
             <CardDescription>
               {interactionMode === 'chat' ? 'Chat Mode' : 'Voice Mode'}
             </CardDescription>
@@ -1174,33 +832,39 @@ export default function FormChat() {
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="h-[60vh] overflow-y-auto p-4 space-y-4 bg-gray-50">
             {messages.map((msg, index) => (
-              <div 
-                key={index} 
-                className={cn(
-                  "flex max-w-[80%] rounded-lg p-4",
-                  msg.sender === 'user' 
-                    ? "bg-blue-600 text-white ml-auto" 
-                    : "bg-gray-200 text-gray-800"
-                )}
-              >
-                {msg.text}
-              </div>
+              <ChatMessage 
+                key={index}
+                message={msg.text}
+                sender={msg.sender}
+                timestamp={msg.timestamp}
+              />
             ))}
             <div ref={messagesEndRef} />
           </div>
           
           <div className="p-4 border-t">
+            {voiceActive ? (
+              <div className="mb-4">
+                <SimpleVoice
+                  onTextRecognized={handleSpeechRecognized}
+                  textToSpeak={currentReadingText}
+                  autoSpeak={true}
+                />
+              </div>
+            ) : null}
+            
             <form onSubmit={handleSubmit} className="flex gap-2">
               <Input
                 value={userInput}
                 onChange={handleInputChange}
-                placeholder="Type your message..."
+                placeholder="Type your response..."
                 className="flex-1"
+                disabled={loading || !formLoaded || completed}
               />
               <Button 
                 type="submit" 
                 className="bg-blue-600 hover:bg-blue-700"
-                disabled={loading}
+                disabled={loading || !formLoaded || completed}
               >
                 Send
               </Button>
@@ -1215,7 +879,7 @@ export default function FormChat() {
     <div className="container mx-auto py-10 px-4 max-w-4xl">
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>{formSchema?.name || 'Form'}</CardTitle>
+          <CardTitle>{formTitle}</CardTitle>
           <CardDescription>{formSchema?.description || ''}</CardDescription>
         </CardHeader>
       </Card>
@@ -1228,10 +892,10 @@ export default function FormChat() {
                 key={section.id}
                 variant={currentSection?.id === section.id ? "default" : "outline"}
                 className="w-full justify-start"
-                onClick={() => handleSectionChange(section.id)}
+                onClick={() => setCurrentSection(section.id)}
               >
                 <span className="mr-2">{index + 1}.</span>
-                {section.name}
+                {section.id}
               </Button>
             ))}
           </div>
@@ -1240,78 +904,21 @@ export default function FormChat() {
         <div className="md:col-span-3">
           <Card>
             <CardHeader>
-              <CardTitle>{currentSection?.name || 'Section'}</CardTitle>
+              <CardTitle>{currentSection?.id || 'Form'}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
-                {currentSection?.fields?.map(field => (
-                  <div key={field.id} className="space-y-2">
-                    <Label htmlFor={field.id}>
-                      {field.name}
-                      {field.required && <span className="text-red-500 ml-1">*</span>}
-                    </Label>
-                    
-                    {field.type === 'textarea' ? (
-                      <Textarea
-                        id={field.id}
-                        value={formData[field.id] || ''}
-                        onChange={(e) => handleFieldChange(field.id, e.target.value)}
-                        required={field.required}
-                      />
-                    ) : field.type === 'select' ? (
-                      <select
-                        id={field.id}
-                        value={formData[field.id] || ''}
-                        onChange={(e) => handleFieldChange(field.id, e.target.value)}
-                        required={field.required}
-                        className="w-full p-2 border rounded-md"
-                      >
-                        <option value="">Select an option</option>
-                        {field.options?.map(option => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    ) : field.type === 'radio' ? (
-                      <div className="space-y-2">
-                        {field.options?.map(option => (
-                          <div key={option} className="flex items-center">
-                            <input
-                              type="radio"
-                              id={`${field.id}_${option}`}
-                              name={field.id}
-                              value={option}
-                              checked={formData[field.id] === option}
-                              onChange={() => handleFieldChange(field.id, option)}
-                              required={field.required}
-                              className="mr-2"
-                            />
-                            <Label htmlFor={`${field.id}_${option}`}>{option}</Label>
-                          </div>
-                        ))}
-                      </div>
-                    ) : field.type === 'checkbox' ? (
-                      <div className="flex items-center">
-                        <input
-                          type="checkbox"
-                          id={field.id}
-                          checked={!!formData[field.id]}
-                          onChange={(e) => handleFieldChange(field.id, e.target.checked)}
-                          required={field.required}
-                          className="mr-2"
-                        />
-                        <Label htmlFor={field.id}>{field.name}</Label>
-                      </div>
-                    ) : (
-                      <Input
-                        id={field.id}
-                        type={field.type === 'email' ? 'email' : field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'}
-                        value={formData[field.id] || ''}
-                        onChange={(e) => handleFieldChange(field.id, e.target.value)}
-                        required={field.required}
-                      />
-                    )}
-                  </div>
-                ))}
+                {fields
+                  .filter(field => field.section === currentSection?.id && fieldVisibility[field.id])
+                  .map(field => (
+                    <FormField
+                      key={field.id}
+                      field={field}
+                      value={formData[field.id] || ''}
+                      onChange={(value) => handleFormResponse(value)}
+                      error={validationError === field.id}
+                    />
+                  ))}
               </div>
             </CardContent>
             <CardFooter className="flex justify-between">
@@ -1330,7 +937,7 @@ export default function FormChat() {
               
               {sections.findIndex(s => s.id === currentSection?.id) === sections.length - 1 ? (
                 <Button 
-                  onClick={handleFormSubmit}
+                  onClick={handleFormCompletion}
                   disabled={loading}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
