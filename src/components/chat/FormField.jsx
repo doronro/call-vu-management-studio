@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +10,7 @@ import { format } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import StarRating from "../form/StarRating";
+import { StarRating } from "../form/StarRating";
 
 export default function FormField({ field, value, onChange, onInputChange, onSkip, validationError }) {
   const [selectedDate, setSelectedDate] = useState(value ? new Date(value) : null);
