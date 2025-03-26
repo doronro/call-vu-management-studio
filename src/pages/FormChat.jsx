@@ -14,6 +14,7 @@ import { useToast } from '../components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
 import { useSessionManager } from '../components/utils/sessionManager';
 import { parseFormSchema } from '../components/utils/formParser';
+import { parseCVUFSchema } from '../components/utils/cvufParser';
 import { cn } from '../lib/utils';
 
 export default function FormChat() {
@@ -34,6 +35,7 @@ export default function FormChat() {
   const [showRating, setShowRating] = useState(false);
   const [userRating, setUserRating] = useState(0);
   const [interactionMode, setInteractionMode] = useState('form');
+  const [cvufData, setCvufData] = useState(null);
   const messagesEndRef = useRef(null);
   const { addMessage, getMessages } = useSessionManager();
 
@@ -179,6 +181,338 @@ export default function FormChat() {
       setLoading(true);
       console.log("Loading form schema with ID:", formId, "in mode:", mode);
       
+      // For testing purposes, use the sample CVUF data for chat and voice modes
+      if (mode === 'chat' || mode === 'voice') {
+        try {
+          // This is a sample CVUF file for testing
+          const sampleCvufData = {
+            form: {
+              accessibility: false,
+              actions: [],
+              approveData: {
+                enabled: false,
+                forceApproveBeforeShowingDownload: false,
+                toCloseForm: false,
+                popupObj: {
+                  errorMsg: "",
+                  fieldType: "",
+                  message: "",
+                  title: ""
+                },
+                submitIcon: ""
+              },
+              calculatedFields: [],
+              direction: "ltr",
+              expirationObj: {},
+              formCustomStyle: "",
+              formName: "Financial: Charge Dispute_NoRules",
+              globalVariables: [],
+              hintMsgProps: {
+                text: "",
+                hideOnScroll: false
+              },
+              isDownloadPDFLink: false,
+              isFormReadonly: false,
+              isPdfForm: false,
+              isSinglePage: false,
+              last_update: "2025-03-11T13:48:07.8",
+              logo: "",
+              logoAlignment: "center",
+              logoName: "",
+              logoUrl: "https://callvustudioproduction.s3.us-east-1.amazonaws.com/admin/callvu_logo_blue.svg",
+              notResizable: true,
+              otp: {
+                buttonText: "",
+                description: "",
+                emptyFieldValidation: "",
+                invalidFieldValidation: "",
+                isActive: false,
+                label: "",
+                logo: "",
+                logoName: "",
+                resendText: "",
+                serviceUrl: "",
+                title: "",
+                validResponse: false,
+                validateUrl: false,
+                redirectAfterSubmit: false,
+                redirectLink: "",
+                isAuth: false,
+                optionalFields: []
+              },
+              PDF: "",
+              redirectAfterSubmit: false,
+              redirectLink: "",
+              stepperType: "None",
+              steps: [
+                {
+                  stepName: "Review Account Activity",
+                  identifier: "step_m65o5e3p",
+                  buttonsConfig: {
+                    back: {
+                      className: "",
+                      isHidden: false,
+                      text: ""
+                    },
+                    next: {
+                      className: "",
+                      isHidden: false,
+                      text: ""
+                    },
+                    targetStep: "",
+                    isFirstNode: true
+                  },
+                  blocks: [
+                    {
+                      blockName: "Good morning, John",
+                      identifier: "block_m6tthkel",
+                      icon: "",
+                      rows: [
+                        {
+                          fields: []
+                        }
+                      ],
+                      style: {
+                        alignment: "",
+                        nobackground: false,
+                        noborders: false,
+                        size: "full"
+                      },
+                      templateID: 28,
+                      type: "regular"
+                    },
+                    {
+                      blockName: "Review Account Activity",
+                      identifier: "block_m65o5e3q",
+                      icon: "",
+                      rows: [
+                        {
+                          fields: [
+                            {
+                              className: "",
+                              clearable: false,
+                              hint: "",
+                              identifier: "radioinput_m65o5wr2",
+                              integrationID: "disputeTransaction",
+                              isHiddenInRuntime: false,
+                              label: "Select the transaction you would like to dispute",
+                              maskingViewer: "none",
+                              name: "editor.fields.radioinput",
+                              permission: "both",
+                              readOnly: false,
+                              required: true,
+                              tooltip: "",
+                              type: "radioInput",
+                              validations: [],
+                              width: "full",
+                              items: [
+                                {
+                                  label: "$65.25 Zippy's Gas 2/5/2025",
+                                  value: "$65.25 Zippy's Gas 2/5/2025"
+                                },
+                                {
+                                  label: "$27.34 Zuzu's Flowers 2/4/2025",
+                                  value: "$27.34 Zuzu's Flowers 2/4/2025"
+                                },
+                                {
+                                  label: "$45.78 Lou's Barber 2/3/2025",
+                                  value: "$45.78 Lou's Barber 2/3/2025"
+                                },
+                                {
+                                  label: "$14.56 Claire's Coffee 2/2/2025",
+                                  value: "$14.56 Claire's Coffee 2/2/2025"
+                                },
+                                {
+                                  label: "$31.45 Bean's Toys 2/1/2025",
+                                  value: "$31.45 Bean's Toys 2/1/2025"
+                                }
+                              ],
+                              columnID: 0,
+                              innertype: "radioOutlinedInput"
+                            }
+                          ]
+                        }
+                      ],
+                      style: {
+                        alignment: "",
+                        nobackground: false,
+                        noborders: false,
+                        size: "full",
+                        background: "altBackground"
+                      },
+                      isCard: false,
+                      className: "small-radius px-2",
+                      type: "regular"
+                    }
+                  ],
+                  style: {
+                    alignment: ""
+                  },
+                  imageUrl: "https://callvustudioproduction.s3.amazonaws.com/e499d048-2b4c-4507-8286-73b641432eb0/flowScreenShots/aws.p.null-financial:_charge_dispute-review_account_activity.png?AWSAccessKeyId=AKIATQPD7AOVTUGBQ5YO&Expires=1898347368&Signature=QjfHLnIiXi%2FJ7NTq7VrQW0Zi2vg%3D",
+                  text: "Review Account Activity"
+                },
+                {
+                  blocks: [
+                    {
+                      blockName: "",
+                      identifier: "block_m65o8wad",
+                      icon: "",
+                      rows: [
+                        {
+                          fields: [
+                            {
+                              className: "",
+                              clearable: false,
+                              hint: "",
+                              identifier: "paragraph_m6fi644y",
+                              integrationID: "paragraph_m6fi644x",
+                              isHiddenInRuntime: false,
+                              label: "",
+                              maskingViewer: "none",
+                              name: "editor.fields.paragraph",
+                              permission: "both",
+                              readOnly: false,
+                              required: false,
+                              tooltip: "",
+                              type: "paragraph",
+                              validations: [],
+                              width: "full",
+                              editedParagraph: "<h4>Dispute Transaction @#disputeTransaction@#</h4><p><br></p><p><br></p>",
+                              columnID: 0
+                            }
+                          ]
+                        },
+                        {
+                          fields: [
+                            {
+                              className: "",
+                              clearable: false,
+                              hint: "",
+                              identifier: "radioinput_m689cv4w",
+                              integrationID: "disputeReason",
+                              isHiddenInRuntime: false,
+                              label: "Please select the reason you are disputing this charge",
+                              maskingViewer: "none",
+                              name: "editor.fields.radioinput",
+                              permission: "both",
+                              readOnly: false,
+                              required: true,
+                              tooltip: "",
+                              type: "radioInput",
+                              validations: [],
+                              width: "full",
+                              items: [
+                                {
+                                  label: "Didn't make this purchase",
+                                  value: "Did not make this purchase"
+                                },
+                                {
+                                  label: "Incorrect amount charged",
+                                  value: "Incorrect amount charged"
+                                },
+                                {
+                                  label: "Didn't receive order",
+                                  value: "Did not receive order"
+                                },
+                                {
+                                  label: "Returned items",
+                                  value: "Returned items"
+                                },
+                                {
+                                  label: "Other",
+                                  value: "Other"
+                                }
+                              ],
+                              columnID: 0,
+                              innertype: "radioOutlinedInput"
+                            }
+                          ]
+                        }
+                      ],
+                      style: {
+                        alignment: "",
+                        nobackground: false,
+                        noborders: false,
+                        size: "full",
+                        background: "altBackground"
+                      },
+                      isCard: true,
+                      type: "regular"
+                    }
+                  ],
+                  buttonsConfig: {
+                    back: {
+                      className: "",
+                      isHidden: false,
+                      text: ""
+                    },
+                    next: {
+                      className: "",
+                      isHidden: false,
+                      text: ""
+                    },
+                    targetStep: ""
+                  },
+                  errors: [],
+                  identifier: "step_m65o8wac",
+                  stepName: "Dispute Details",
+                  isDisplayPdfPreview: false,
+                  imageUrl: "https://callvustudiodev.s3.amazonaws.com/921d5eec-7989-4b28-9744-bca7f40121ec/flowScreenShots/aws.d.2000028-financial:_charge_dispute_norules-dispute_details.png?AWSAccessKeyId=AKIA5FTY6Z7W6WAIGADC&Expires=1899919417&Signature=JpEdQkmH%2BgZptqkq%2FOO2cv%2BOIkU%3D",
+                  text: "1st Step_Copy1",
+                  style: {
+                    alignment: ""
+                  },
+                  hideFooter: false
+                }
+              ],
+              templateType: 3,
+              theme: {
+                primary: "#39a6a4",
+                secondary: "#eaf4f2",
+                font: "Inter-Regular",
+                text: "#3b3b3b",
+                altText: "#000",
+                background: "#fff",
+                altBackground: "#f7f7f7",
+                headerBackground: "#fff",
+                neutral: "#fff",
+                link: "#00f",
+                success: "#008000",
+                danger: "#f00",
+                warning: "#ec9d04",
+                dark: "hsl(272 23% 14%)",
+                white: "#fff",
+                transparent: "transparent"
+              },
+              title: "Charge Dispute",
+              otpTemplateID: "",
+              isOTPEnabled: false,
+              otpVersion: 2,
+              formVersion: "10.2.79",
+              lastModified: "2025-03-13T09:53:29.641+00:00",
+              newRules: [],
+              Timestamp: "2025-03-11T13:48:00",
+              TimeModified: "2025-03-13T09:53:29.641+00:00",
+              style: "",
+              id: null
+            }
+          };
+          
+          console.log("Using sample CVUF data for chat/voice mode");
+          setCvufData(sampleCvufData);
+          
+          // Parse the CVUF data using the specialized parser
+          const parsedSchema = parseCVUFSchema(sampleCvufData);
+          console.log("Parsed CVUF schema:", parsedSchema);
+          
+          // Initialize the form with the parsed CVUF schema
+          initializeFormFromCVUF(parsedSchema);
+          return;
+        } catch (error) {
+          console.error("Error processing sample CVUF data:", error);
+        }
+      }
+      
       // Check if formId is a complex object (like a file asset) instead of a simple string
       if (typeof formId === 'object' && formId !== null) {
         console.log("Form ID is a complex object:", formId);
@@ -192,11 +526,20 @@ export default function FormChat() {
               const formData = await response.json();
               console.log("Successfully loaded form data from URL:", formData);
               
-              // Use the form parser to parse the CVUF file
+              // Store the CVUF data
+              setCvufData(formData);
+              
+              // Use the specialized CVUF parser for chat and voice modes
+              if (mode === 'chat' || mode === 'voice') {
+                const parsedSchema = parseCVUFSchema(formData);
+                console.log("Parsed CVUF schema:", parsedSchema);
+                initializeFormFromCVUF(parsedSchema);
+                return;
+              }
+              
+              // For other modes, use the standard form parser
               const parsedForm = parseFormSchema(formData);
               console.log("Parsed form schema:", parsedForm);
-              
-              // Initialize the form with the parsed schema
               initializeFormFromParsedSchema(parsedForm);
               return;
             } else {
@@ -222,11 +565,20 @@ export default function FormChat() {
               const formData = await response.json();
               console.log("Successfully loaded form data from file:", formData);
               
-              // Use the form parser to parse the CVUF file
+              // Store the CVUF data
+              setCvufData(formData);
+              
+              // Use the specialized CVUF parser for chat and voice modes
+              if (mode === 'chat' || mode === 'voice') {
+                const parsedSchema = parseCVUFSchema(formData);
+                console.log("Parsed CVUF schema:", parsedSchema);
+                initializeFormFromCVUF(parsedSchema);
+                return;
+              }
+              
+              // For other modes, use the standard form parser
               const parsedForm = parseFormSchema(formData);
               console.log("Parsed form schema:", parsedForm);
-              
-              // Initialize the form with the parsed schema
               initializeFormFromParsedSchema(parsedForm);
               return;
             } else {
@@ -309,6 +661,50 @@ export default function FormChat() {
       }
     } catch (error) {
       console.error("Error loading form:", error);
+      setLoading(false);
+      setInitializing(false);
+    }
+  };
+
+  const initializeFormFromCVUF = (parsedSchema) => {
+    try {
+      console.log("Initializing form from CVUF schema:", parsedSchema);
+      
+      if (!parsedSchema || !parsedSchema.steps) {
+        console.error("Invalid CVUF schema");
+        setLoading(false);
+        setInitializing(false);
+        return;
+      }
+      
+      // Set the form schema
+      setFormSchema({
+        name: parsedSchema.metadata?.name || "CVUF Form",
+        description: parsedSchema.metadata?.description || "",
+        sections: parsedSchema.steps
+      });
+      
+      // Set the sections based on steps
+      setSections(parsedSchema.steps);
+      
+      // Set the current section to the first one
+      if (parsedSchema.steps.length > 0) {
+        setCurrentSection(parsedSchema.steps[0]);
+      }
+      
+      // Initialize form data
+      const initialFormData = {};
+      if (parsedSchema.fields) {
+        parsedSchema.fields.forEach(field => {
+          initialFormData[field.id] = '';
+        });
+      }
+      setFormData(initialFormData);
+      
+      setLoading(false);
+      setInitializing(false);
+    } catch (error) {
+      console.error("Error initializing form from CVUF schema:", error);
       setLoading(false);
       setInitializing(false);
     }
@@ -430,8 +826,93 @@ export default function FormChat() {
   const processUserInput = (input) => {
     // Simple bot response for now
     setTimeout(() => {
+      // If we have CVUF data, use it to generate a more contextual response
+      if (cvufData && cvufData.form) {
+        const formName = cvufData.form.formName || cvufData.form.title || "this form";
+        
+        // Check if input contains keywords related to transactions or disputes
+        if (input.toLowerCase().includes('transaction') || 
+            input.toLowerCase().includes('dispute') || 
+            input.toLowerCase().includes('charge')) {
+          
+          addMessage(`I can help you with disputing a transaction. Please select the transaction you would like to dispute from your recent account activity.`, 'bot');
+          
+          // If we have transaction options in the CVUF data, show them
+          const transactionField = findFieldInCVUF(cvufData, 'disputeTransaction');
+          if (transactionField && transactionField.items && transactionField.items.length > 0) {
+            let transactionsMessage = "Here are your recent transactions:\n";
+            transactionField.items.forEach((item, index) => {
+              transactionsMessage += `${index + 1}. ${item.label}\n`;
+            });
+            transactionsMessage += "\nWhich one would you like to dispute? (Please enter the number)";
+            
+            setTimeout(() => {
+              addMessage(transactionsMessage, 'bot');
+            }, 1000);
+          }
+          
+          return;
+        }
+        
+        // Check if input is a number and might be selecting a transaction
+        const inputNum = parseInt(input);
+        if (!isNaN(inputNum) && inputNum > 0) {
+          const transactionField = findFieldInCVUF(cvufData, 'disputeTransaction');
+          if (transactionField && transactionField.items && transactionField.items.length >= inputNum) {
+            const selectedTransaction = transactionField.items[inputNum - 1];
+            
+            addMessage(`You've selected: ${selectedTransaction.label}. What is the reason for disputing this transaction?`, 'bot');
+            
+            // If we have dispute reason options in the CVUF data, show them
+            const reasonField = findFieldInCVUF(cvufData, 'disputeReason');
+            if (reasonField && reasonField.items && reasonField.items.length > 0) {
+              let reasonsMessage = "Please select one of the following reasons:\n";
+              reasonField.items.forEach((item, index) => {
+                reasonsMessage += `${index + 1}. ${item.label}\n`;
+              });
+              
+              setTimeout(() => {
+                addMessage(reasonsMessage, 'bot');
+              }, 1000);
+            }
+            
+            return;
+          }
+        }
+        
+        // Default response for the form context
+        addMessage(`I'm here to help you with ${formName}. You can ask me questions about disputing a transaction or select from the options provided.`, 'bot');
+        return;
+      }
+      
+      // Generic response if no CVUF data
       addMessage("I've received your input. Let me process that for you.", 'bot');
     }, 500);
+  };
+
+  // Helper function to find a field in the CVUF data by integration ID
+  const findFieldInCVUF = (cvufData, integrationId) => {
+    if (!cvufData || !cvufData.form || !cvufData.form.steps) return null;
+    
+    for (const step of cvufData.form.steps) {
+      if (!step.blocks) continue;
+      
+      for (const block of step.blocks) {
+        if (!block.rows) continue;
+        
+        for (const row of block.rows) {
+          if (!row.fields) continue;
+          
+          for (const field of row.fields) {
+            if (field.integrationID === integrationId) {
+              return field;
+            }
+          }
+        }
+      }
+    }
+    
+    return null;
   };
 
   const handleFieldChange = (fieldId, value) => {
@@ -683,7 +1164,7 @@ export default function FormChat() {
       <div className="container mx-auto py-10 px-4 max-w-4xl">
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>{processName}</CardTitle>
+            <CardTitle>{cvufData?.form?.formName || cvufData?.form?.title || processName}</CardTitle>
             <CardDescription>
               {interactionMode === 'chat' ? 'Chat Mode' : 'Voice Mode'}
             </CardDescription>
